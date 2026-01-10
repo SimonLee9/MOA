@@ -14,6 +14,7 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.meeting import Meeting
+    from app.models.notification import Notification
 
 
 class User(Base):
@@ -57,6 +58,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
-    
+    notifications: Mapped[list["Notification"]] = relationship(
+        "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self) -> str:
         return f"<User {self.email}>"

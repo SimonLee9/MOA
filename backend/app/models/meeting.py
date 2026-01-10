@@ -15,6 +15,7 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.notification import Notification
 
 
 class MeetingStatus(str, enum.Enum):
@@ -83,6 +84,11 @@ class Meeting(Base):
         Text,
         nullable=True
     )
+    tags: Mapped[List[str]] = mapped_column(
+        JSON,
+        default=list,
+        comment="User-defined tags for categorization"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now()
@@ -115,7 +121,12 @@ class Meeting(Base):
         back_populates="meeting",
         cascade="all, delete-orphan"
     )
-    
+    notifications: Mapped[List["Notification"]] = relationship(
+        "Notification",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self) -> str:
         return f"<Meeting {self.title}>"
 

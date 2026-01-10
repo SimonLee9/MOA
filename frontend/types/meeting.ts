@@ -59,6 +59,7 @@ export interface Meeting {
   audioFormat?: string;
   meetingDate?: string;
   errorMessage?: string;
+  tags?: string[];
   createdAt: string;
   updatedAt: string;
   processedAt?: string;
@@ -79,6 +80,18 @@ export interface MeetingListResponse {
   page: number;
   size: number;
   pages: number;
+}
+
+export interface MeetingSearchParams {
+  q?: string;
+  status?: MeetingStatus;
+  dateFrom?: string;
+  dateTo?: string;
+  tag?: string;
+  sortBy?: 'created_at' | 'meeting_date' | 'title';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  size?: number;
 }
 
 export interface ProcessingStatus {

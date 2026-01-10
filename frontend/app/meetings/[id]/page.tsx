@@ -4,16 +4,20 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, FileText, CheckSquare, MessageSquare, Loader2, RefreshCw, AlertTriangle, Activity } from 'lucide-react';
-import { meetingsApi, reviewApi } from '@/lib/api';
-import { formatDate, formatDuration, getStatusLabel, getStatusColor, getPriorityColor, getPriorityLabel } from '@/lib/utils';
+import { meetingsApi, reviewApi, actionItemsApi } from '@/lib/api';
+import ExportButton from '@/components/meeting/ExportButton';
+import { formatDate, formatDuration, getStatusLabel, getStatusColor } from '@/lib/utils';
 import useProgress from '@/lib/useProgress';
-import type { Meeting, ReviewStatus } from '@/types/meeting';
+import type { Meeting, ReviewStatus, ActionItem, ActionItemCreate } from '@/types/meeting';
 import ReviewPanel from '@/components/review/ReviewPanel';
 import ProgressTracker from '@/components/meeting/ProgressTracker';
+import ActionItemManager from '@/components/meeting/ActionItemManager';
 
 export default function MeetingDetailPage() {
   const params = useParams();
+  const meetingId = params.id as string;
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'summary' | 'actions' | 'transcript' | 'review' | 'progress'>('summary');
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus | null>(null);
@@ -46,13 +50,41 @@ export default function MeetingDetailPage() {
 
   const loadMeeting = async () => {
     try {
-      const data = await meetingsApi.get(params.id as string);
+      const data = await meetingsApi.get(meetingId);
       setMeeting(data);
+      // Also load action items separately for management
+      if (data.actionItems) {
+        setActionItems(data.actionItems);
+      }
     } catch (error) {
       console.error('Failed to load meeting:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadActionItems = async () => {
+    try {
+      const items = await actionItemsApi.list(meetingId);
+      setActionItems(items);
+    } catch (error) {
+      console.error('Failed to load action items:', error);
+    }
+  };
+
+  const handleAddAction = async (data: ActionItemCreate) => {
+    const newItem = await actionItemsApi.create(meetingId, data);
+    setActionItems(prev => [...prev, newItem]);
+  };
+
+  const handleUpdateAction = async (id: string, data: Partial<ActionItem>) => {
+    const updated = await actionItemsApi.update(meetingId, id, data);
+    setActionItems(prev => prev.map(item => item.id === id ? updated : item));
+  };
+
+  const handleDeleteAction = async (id: string) => {
+    await actionItemsApi.delete(meetingId, id);
+    setActionItems(prev => prev.filter(item => item.id !== id));
   };
 
   const checkReviewStatus = async () => {
@@ -113,6 +145,11 @@ export default function MeetingDetailPage() {
                 {meeting.audioDuration && ` · ${formatDuration(meeting.audioDuration)}`}
               </p>
             </div>
+            <ExportButton
+              meetingId={meetingId}
+              meetingTitle={meeting.title}
+              disabled={meeting.status === 'processing' || meeting.status === 'uploaded'}
+            />
             <button onClick={loadMeeting} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
               <RefreshCw className="w-5 h-5" />
             </button>
@@ -231,29 +268,14 @@ export default function MeetingDetailPage() {
         )}
 
         {activeTab === 'actions' && (
-          <div className="space-y-3">
-            {meeting.actionItems && meeting.actionItems.length > 0 ? (
-              meeting.actionItems.map((item) => (
-                <div key={item.id} className="p-4 bg-white dark:bg-gray-900 rounded-xl border">
-                  <div className="flex items-start gap-3">
-                    <CheckSquare className={`w-5 h-5 flex-shrink-0 ${item.status === 'completed' ? 'text-green-600' : 'text-gray-400'}`} />
-                    <div className="flex-1">
-                      <p className={item.status === 'completed' ? 'line-through text-gray-400' : ''}>{item.content}</p>
-                      <div className="flex items-center gap-3 mt-2 text-sm">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(item.priority)}`}>
-                          {getPriorityLabel(item.priority)}
-                        </span>
-                        {item.assignee && <span className="text-gray-500">담당: {item.assignee}</span>}
-                        {item.dueDate && <span className="text-gray-500">마감: {formatDate(item.dueDate)}</span>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-center text-gray-500 py-8">추출된 액션 아이템이 없습니다.</p>
-            )}
-          </div>
+          <ActionItemManager
+            meetingId={meetingId}
+            items={actionItems}
+            onAdd={handleAddAction}
+            onUpdate={handleUpdateAction}
+            onDelete={handleDeleteAction}
+            readonly={meeting.status === 'processing'}
+          />
         )}
 
         {activeTab === 'transcript' && (

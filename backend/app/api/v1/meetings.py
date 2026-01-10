@@ -71,38 +71,93 @@ async def list_meetings(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None, description="Filter by status"),
+    query_str: Optional[str] = Query(None, alias="q", description="Search in title"),
+    date_from: Optional[str] = Query(None, description="Filter from date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter to date (YYYY-MM-DD)"),
+    tag: Optional[str] = Query(None, description="Filter by tag"),
+    sort_by: str = Query("created_at", description="Sort field: created_at, meeting_date, title"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get list of meetings for current user
+    Get list of meetings for current user with search and filter options
+
+    - **q**: Search query for title (case-insensitive partial match)
+    - **status**: Filter by meeting status
+    - **date_from**: Filter meetings from this date
+    - **date_to**: Filter meetings until this date
+    - **tag**: Filter by tag
+    - **sort_by**: Sort by field (created_at, meeting_date, title)
+    - **sort_order**: Sort order (asc, desc)
     """
+    from datetime import datetime
+
     # Base query
-    query = select(Meeting).where(Meeting.user_id == current_user.id)
-    
+    base_query = select(Meeting).where(Meeting.user_id == current_user.id)
+
     # Filter by status if provided
     if status:
         try:
             status_enum = DBMeetingStatus(status)
-            query = query.where(Meeting.status == status_enum)
+            base_query = base_query.where(Meeting.status == status_enum)
         except ValueError:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail=f"Invalid status: {status}"
             )
-    
+
+    # Search by title (case-insensitive)
+    if query_str:
+        base_query = base_query.where(Meeting.title.ilike(f"%{query_str}%"))
+
+    # Filter by tag
+    if tag:
+        base_query = base_query.where(Meeting.tags.contains([tag]))
+
+    # Filter by date range
+    if date_from:
+        try:
+            from_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+            base_query = base_query.where(Meeting.meeting_date >= from_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date_from format. Use YYYY-MM-DD"
+            )
+
+    if date_to:
+        try:
+            to_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+            base_query = base_query.where(Meeting.meeting_date <= to_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date_to format. Use YYYY-MM-DD"
+            )
+
     # Count total
-    count_query = select(func.count()).select_from(query.subquery())
+    count_query = select(func.count()).select_from(base_query.subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar()
-    
+
+    # Validate and apply sorting
+    valid_sort_fields = {"created_at", "meeting_date", "title"}
+    if sort_by not in valid_sort_fields:
+        sort_by = "created_at"
+
+    sort_column = getattr(Meeting, sort_by)
+    if sort_order.lower() == "asc":
+        base_query = base_query.order_by(sort_column.asc())
+    else:
+        base_query = base_query.order_by(sort_column.desc())
+
     # Paginate
-    query = query.order_by(Meeting.created_at.desc())
-    query = query.offset((page - 1) * size).limit(size)
-    
-    result = await db.execute(query)
+    base_query = base_query.offset((page - 1) * size).limit(size)
+
+    result = await db.execute(base_query)
     meetings = result.scalars().all()
-    
+
     return PaginatedResponse(
         items=meetings,
         total=total,
@@ -541,3 +596,94 @@ async def delete_action_item(
     
     await db.delete(action_item)
     await db.commit()
+
+
+# --- Tags Management ---
+
+@router.get("/tags/list")
+async def list_all_tags(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all unique tags used by the current user
+    """
+    result = await db.execute(
+        select(Meeting.tags)
+        .where(Meeting.user_id == current_user.id)
+        .where(Meeting.tags != None)
+    )
+
+    all_tags = set()
+    for row in result.all():
+        if row.tags:
+            all_tags.update(row.tags)
+
+    return {"tags": sorted(list(all_tags))}
+
+
+@router.post("/{meeting_id}/tags")
+async def add_tags(
+    meeting_id: UUID,
+    tags: list[str],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Add tags to a meeting
+    """
+    result = await db.execute(
+        select(Meeting).where(
+            Meeting.id == meeting_id,
+            Meeting.user_id == current_user.id
+        )
+    )
+    meeting = result.scalar_one_or_none()
+
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found"
+        )
+
+    # Add new tags (avoid duplicates)
+    current_tags = set(meeting.tags or [])
+    current_tags.update(tags)
+    meeting.tags = list(current_tags)
+
+    await db.commit()
+    await db.refresh(meeting)
+
+    return {"tags": meeting.tags}
+
+
+@router.delete("/{meeting_id}/tags/{tag}")
+async def remove_tag(
+    meeting_id: UUID,
+    tag: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Remove a tag from a meeting
+    """
+    result = await db.execute(
+        select(Meeting).where(
+            Meeting.id == meeting_id,
+            Meeting.user_id == current_user.id
+        )
+    )
+    meeting = result.scalar_one_or_none()
+
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found"
+        )
+
+    if meeting.tags and tag in meeting.tags:
+        meeting.tags = [t for t in meeting.tags if t != tag]
+        await db.commit()
+        await db.refresh(meeting)
+
+    return {"tags": meeting.tags or []}

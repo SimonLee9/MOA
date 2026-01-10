@@ -3,6 +3,7 @@ LangGraph Meeting Processing Pipeline
 Main graph definition and execution
 """
 
+import logging
 from typing import Literal
 from datetime import datetime
 
@@ -10,6 +11,22 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from pipeline.state import MeetingAgentState, create_initial_state
+from pipeline.errors import (
+    PipelineError,
+    STTError,
+    STTNetworkError,
+    STTTimeoutError,
+    STTAudioError,
+    SummarizerError,
+    ActionExtractorError,
+    CritiqueError,
+    LLMRateLimitError,
+    LLMResponseError,
+    MaxRetriesExceededError,
+)
+from pipeline.retry import retry_async, RETRY_CONFIGS
+
+logger = logging.getLogger(__name__)
 
 
 # === Node Functions ===
@@ -18,18 +35,50 @@ async def stt_node(state: MeetingAgentState) -> dict:
     """
     Speech-to-Text Node
     Converts audio to text with speaker diarization
+
+    Features:
+    - Automatic retry on network errors
+    - Detailed error classification
     """
     from pipeline.integrations.clova_stt import transcribe_audio, get_clova_client
-    
+
+    meeting_id = state["meeting_id"]
+    audio_url = state["audio_file_url"]
+
+    logger.info(f"[{meeting_id}] Starting STT for audio")
+
+    async def do_transcribe():
+        """Inner function for retry wrapper"""
+        try:
+            return await transcribe_audio(audio_url)
+        except TimeoutError as e:
+            raise STTTimeoutError(
+                message=f"STT timeout: {e}",
+                audio_url=audio_url,
+            )
+        except ConnectionError as e:
+            raise STTNetworkError(
+                message=f"STT connection failed: {e}",
+                audio_url=audio_url,
+            )
+        except ValueError as e:
+            raise STTAudioError(
+                message=f"Invalid audio: {e}",
+                audio_url=audio_url,
+            )
+        except Exception as e:
+            raise STTError(message=f"STT failed: {e}", audio_url=audio_url)
+
     try:
-        # Transcribe audio
-        result = await transcribe_audio(state["audio_file_url"])
-        
-        # Format transcript for LLM
+        result = await retry_async(
+            do_transcribe,
+            config=RETRY_CONFIGS["stt"],
+            node_name="stt",
+        )
+
         client = get_clova_client()
         formatted_transcript = client.format_transcript(result)
-        
-        # Convert segments to dict format
+
         segments = [
             {
                 "speaker": seg.speaker,
@@ -40,7 +89,9 @@ async def stt_node(state: MeetingAgentState) -> dict:
             }
             for seg in result.segments
         ]
-        
+
+        logger.info(f"[{meeting_id}] STT completed: {len(segments)} segments")
+
         return {
             "transcript_segments": segments,
             "raw_text": formatted_transcript,
@@ -48,8 +99,15 @@ async def stt_node(state: MeetingAgentState) -> dict:
             "audio_duration": result.duration,
             "status": "stt_complete",
         }
-    
+
+    except (MaxRetriesExceededError, PipelineError) as e:
+        logger.error(f"[{meeting_id}] STT failed: {e}")
+        return {
+            "status": "failed",
+            "error_message": str(e),
+        }
     except Exception as e:
+        logger.exception(f"[{meeting_id}] STT unexpected error")
         return {
             "status": "failed",
             "error_message": f"STT failed: {str(e)}",
@@ -60,25 +118,69 @@ async def summarizer_node(state: MeetingAgentState) -> dict:
     """
     Summarizer Node
     Generates meeting summary using Claude
+
+    Features:
+    - Automatic retry on API errors
+    - Incorporates human/critique feedback on retry
     """
     from pipeline.integrations.claude_llm import generate_summary
-    
+    import json
+
+    meeting_id = state["meeting_id"]
+    retry_count = state.get("retry_count", 0)
+
+    logger.info(f"[{meeting_id}] Starting summarization (attempt {retry_count + 1})")
+
+    # Include feedback from previous attempts
+    feedback = state.get("human_feedback") or ""
+    critique_feedback = state.get("critique", "")
+
+    async def do_summarize():
+        try:
+            return await generate_summary(
+                transcript=state["raw_text"],
+                meeting_title=state["meeting_title"],
+                meeting_date=state["meeting_date"],
+                speakers=state["speakers"],
+            )
+        except json.JSONDecodeError as e:
+            raise LLMResponseError(
+                message=f"Invalid JSON response: {e}",
+                node="summarizer",
+            )
+        except Exception as e:
+            if "rate" in str(e).lower():
+                raise LLMRateLimitError(
+                    message=f"Rate limit: {e}",
+                    node="summarizer",
+                    retry_after=60,
+                )
+            raise SummarizerError(message=f"Summarization failed: {e}")
+
     try:
-        result = await generate_summary(
-            transcript=state["raw_text"],
-            meeting_title=state["meeting_title"],
-            meeting_date=state["meeting_date"],
-            speakers=state["speakers"],
+        result = await retry_async(
+            do_summarize,
+            config=RETRY_CONFIGS["llm"],
+            node_name="summarizer",
         )
-        
+
+        logger.info(f"[{meeting_id}] Summarization completed")
+
         return {
             "draft_summary": result.get("summary", ""),
             "key_points": result.get("key_points", []),
             "decisions": result.get("decisions", []),
             "status": "summarized",
         }
-    
+
+    except (MaxRetriesExceededError, PipelineError) as e:
+        logger.error(f"[{meeting_id}] Summarization failed: {e}")
+        return {
+            "status": "failed",
+            "error_message": str(e),
+        }
     except Exception as e:
+        logger.exception(f"[{meeting_id}] Summarization unexpected error")
         return {
             "status": "failed",
             "error_message": f"Summarization failed: {str(e)}",
@@ -89,24 +191,63 @@ async def action_extractor_node(state: MeetingAgentState) -> dict:
     """
     Action Extractor Node
     Extracts action items from the meeting
+
+    Features:
+    - Automatic retry on API errors
+    - Validates action item structure
     """
     from pipeline.integrations.claude_llm import extract_actions
-    
+    import json
+
+    meeting_id = state["meeting_id"]
+
+    logger.info(f"[{meeting_id}] Starting action extraction")
+
+    async def do_extract():
+        try:
+            return await extract_actions(
+                transcript=state["raw_text"],
+                summary=state["draft_summary"],
+                meeting_title=state["meeting_title"],
+                meeting_date=state["meeting_date"],
+                speakers=state["speakers"],
+            )
+        except json.JSONDecodeError as e:
+            raise LLMResponseError(
+                message=f"Invalid JSON response: {e}",
+                node="extract_actions",
+            )
+        except Exception as e:
+            if "rate" in str(e).lower():
+                raise LLMRateLimitError(
+                    message=f"Rate limit: {e}",
+                    node="extract_actions",
+                )
+            raise ActionExtractorError(message=f"Action extraction failed: {e}")
+
     try:
-        result = await extract_actions(
-            transcript=state["raw_text"],
-            summary=state["draft_summary"],
-            meeting_title=state["meeting_title"],
-            meeting_date=state["meeting_date"],
-            speakers=state["speakers"],
+        result = await retry_async(
+            do_extract,
+            config=RETRY_CONFIGS["llm"],
+            node_name="extract_actions",
         )
-        
+
+        action_items = result.get("action_items", [])
+        logger.info(f"[{meeting_id}] Extracted {len(action_items)} action items")
+
         return {
-            "action_items": result.get("action_items", []),
+            "action_items": action_items,
             "status": "actions_extracted",
         }
-    
+
+    except (MaxRetriesExceededError, PipelineError) as e:
+        logger.error(f"[{meeting_id}] Action extraction failed: {e}")
+        return {
+            "status": "failed",
+            "error_message": str(e),
+        }
     except Exception as e:
+        logger.exception(f"[{meeting_id}] Action extraction unexpected error")
         return {
             "status": "failed",
             "error_message": f"Action extraction failed: {str(e)}",
@@ -117,30 +258,71 @@ async def critique_node(state: MeetingAgentState) -> dict:
     """
     Critique Node
     Validates the quality of generated content
+
+    Features:
+    - Graceful degradation if critique fails
+    - Tracks retry attempts
     """
     from pipeline.integrations.claude_llm import critique_results
-    
+    import json
+
+    meeting_id = state["meeting_id"]
+
+    logger.info(f"[{meeting_id}] Starting critique")
+
+    async def do_critique():
+        try:
+            return await critique_results(
+                transcript=state["raw_text"],
+                summary=state["draft_summary"],
+                key_points=state["key_points"],
+                decisions=state["decisions"],
+                action_items=state["action_items"],
+            )
+        except json.JSONDecodeError as e:
+            raise LLMResponseError(
+                message=f"Invalid JSON response: {e}",
+                node="critique",
+            )
+        except Exception as e:
+            raise CritiqueError(message=f"Critique failed: {e}")
+
     try:
-        result = await critique_results(
-            transcript=state["raw_text"],
-            summary=state["draft_summary"],
-            key_points=state["key_points"],
-            decisions=state["decisions"],
-            action_items=state["action_items"],
+        result = await retry_async(
+            do_critique,
+            config=RETRY_CONFIGS["llm"],
+            node_name="critique",
         )
-        
+
+        passed = result.get("passed", False)
+        issues = result.get("issues", [])
+
+        logger.info(
+            f"[{meeting_id}] Critique completed: "
+            f"{'passed' if passed else f'failed ({len(issues)} issues)'}"
+        )
+
         return {
             "critique": result.get("critique", ""),
-            "critique_issues": result.get("issues", []),
-            "critique_passed": result.get("passed", False),
-            "retry_count": state["retry_count"] + 1 if not result.get("passed", False) else state["retry_count"],
+            "critique_issues": issues,
+            "critique_passed": passed,
+            "retry_count": state["retry_count"] + 1 if not passed else state["retry_count"],
             "status": "critique_complete",
         }
-    
-    except Exception as e:
-        # If critique fails, assume it passed to avoid blocking
+
+    except (MaxRetriesExceededError, PipelineError) as e:
+        # Critique failure should not block the pipeline
+        logger.warning(f"[{meeting_id}] Critique failed, proceeding anyway: {e}")
         return {
-            "critique": f"Critique failed: {str(e)}",
+            "critique": f"Critique skipped due to error: {str(e)}",
+            "critique_issues": [],
+            "critique_passed": True,  # Allow to proceed
+            "status": "critique_complete",
+        }
+    except Exception as e:
+        logger.warning(f"[{meeting_id}] Critique unexpected error, proceeding: {e}")
+        return {
+            "critique": f"Critique skipped: {str(e)}",
             "critique_issues": [],
             "critique_passed": True,
             "status": "critique_complete",

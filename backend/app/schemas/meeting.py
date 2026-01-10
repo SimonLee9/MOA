@@ -124,6 +124,7 @@ class MeetingBase(BaseModel):
     """Base meeting fields"""
     title: str = Field(..., min_length=1, max_length=255, description="Meeting title")
     meeting_date: Optional[date] = Field(None, description="Date of the meeting")
+    tags: List[str] = Field(default_factory=list, description="Meeting tags for categorization")
 
 
 class MeetingCreate(MeetingBase):
@@ -135,6 +136,7 @@ class MeetingUpdate(BaseModel):
     """Schema for updating a meeting"""
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     meeting_date: Optional[date] = None
+    tags: Optional[List[str]] = None
 
 
 class MeetingResponse(MeetingBase):

@@ -89,3 +89,13 @@ export function getActionStatusLabel(status: ActionItemStatus): string {
   };
   return labels[status] || status;
 }
+
+export function getActionStatusColor(status: ActionItemStatus): string {
+  const colors: Record<ActionItemStatus, string> = {
+    pending: 'text-gray-600 bg-gray-100',
+    in_progress: 'text-blue-600 bg-blue-100',
+    completed: 'text-green-600 bg-green-100',
+    cancelled: 'text-gray-400 bg-gray-50',
+  };
+  return colors[status] || 'text-gray-600 bg-gray-100';
+}

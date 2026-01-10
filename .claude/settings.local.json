@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(if not exist \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\components\\\\meeting\" mkdir \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\components\\\\meeting\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Complete MVP features - HITL UI, MCP, WebSocket, Metrics\n\n## Frontend\n- Add ReviewPanel component for Human-in-the-Loop review\n- Add ProgressTracker component for real-time progress display\n- Add useProgress hook for WebSocket connection management\n- Integrate review and progress tabs in meeting detail page\n- Add review API client and types\n\n## Backend\n- Add WebSocket endpoint for real-time progress streaming\n- Add metrics API for workflow monitoring and health checks\n- Register websocket and metrics routers\n\n## AI Pipeline\n- Add MCP client integration for external tool execution\n- Support Jira, Google Calendar, Notion, Slack tools\n- Update executor_node to use MCP client with fallback\n\n## Configuration\n- Add MCP server environment variables to .env.example\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(echo:*)",
+      "Bash(if not exist \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\app\\\\dashboard\" mkdir \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\app\\\\dashboard\")",
+      "Bash(if not exist \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\components\\\\dashboard\" mkdir \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\components\\\\dashboard\")",
+      "Bash(if not exist \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\components\\\\notifications\" mkdir \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\components\\\\notifications\")",
+      "Bash(if not exist \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\app\\\\settings\\\\integrations\" mkdir \"C:\\\\Users\\\\lbj14\\\\OneDrive\\\\문서\\\\GitHub\\\\MOA\\\\frontend\\\\app\\\\settings\\\\integrations\")"
     ]
   }
 }

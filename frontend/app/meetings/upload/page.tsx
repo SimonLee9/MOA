@@ -3,8 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Upload, ArrowLeft, FileAudio, X, Loader2 } from 'lucide-react';
+import { Upload, ArrowLeft, FileAudio, X, Loader2, Mic } from 'lucide-react';
 import { meetingsApi } from '@/lib/api';
+import AudioRecorder from '@/components/meeting/AudioRecorder';
+
+type InputMode = 'file' | 'record';
 
 export default function UploadPage() {
   const router = useRouter();
@@ -14,6 +17,8 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
+  const [inputMode, setInputMode] = useState<InputMode>('file');
+  const [recordedDuration, setRecordedDuration] = useState(0);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -27,6 +32,16 @@ export default function UploadPage() {
       setError('');
       if (!title) setTitle(f.name.replace(/\.[^/.]+$/, ''));
     }
+  };
+
+  const handleRecordingComplete = (blob: Blob, duration: number) => {
+    // Convert blob to File
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const fileName = `recording_${timestamp}.webm`;
+    const audioFile = new File([blob], fileName, { type: blob.type });
+    setFile(audioFile);
+    setRecordedDuration(duration);
+    if (!title) setTitle(`녹음_${timestamp}`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,27 +106,84 @@ export default function UploadPage() {
             />
           </div>
 
-          {/* File Upload */}
+          {/* Input Mode Selection */}
           <div>
-            <label className="block text-sm font-medium mb-2">오디오 파일 *</label>
-            {!file ? (
-              <label className="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-gray-400 dark:border-gray-700">
-                <input type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
-                <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                <p className="text-gray-600 dark:text-gray-400">클릭하여 파일 선택</p>
-                <p className="text-sm text-gray-400 mt-1">m4a, mp3, wav, webm, ogg (최대 500MB)</p>
-              </label>
-            ) : (
-              <div className="flex items-center gap-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                <FileAudio className="w-10 h-10 text-blue-600" />
-                <div className="flex-1">
-                  <p className="font-medium truncate">{file.name}</p>
-                  <p className="text-sm text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
-                <button type="button" onClick={() => setFile(null)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+            <label className="block text-sm font-medium mb-2">오디오 입력 방식 *</label>
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => { setInputMode('file'); setFile(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-colors ${
+                  inputMode === 'file'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Upload className="w-5 h-5" />
+                파일 업로드
+              </button>
+              <button
+                type="button"
+                onClick={() => { setInputMode('record'); setFile(null); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-colors ${
+                  inputMode === 'record'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Mic className="w-5 h-5" />
+                직접 녹음
+              </button>
+            </div>
+
+            {/* File Upload Mode */}
+            {inputMode === 'file' && (
+              <>
+                {!file ? (
+                  <label className="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-gray-400 dark:border-gray-700">
+                    <input type="file" accept="audio/*" onChange={handleFileChange} className="hidden" />
+                    <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                    <p className="text-gray-600 dark:text-gray-400">클릭하여 파일 선택</p>
+                    <p className="text-sm text-gray-400 mt-1">m4a, mp3, wav, webm, ogg (최대 500MB)</p>
+                  </label>
+                ) : (
+                  <div className="flex items-center gap-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                    <FileAudio className="w-10 h-10 text-blue-600" />
+                    <div className="flex-1">
+                      <p className="font-medium truncate">{file.name}</p>
+                      <p className="text-sm text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                    <button type="button" onClick={() => setFile(null)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Recording Mode */}
+            {inputMode === 'record' && (
+              <>
+                {!file ? (
+                  <AudioRecorder
+                    onRecordingComplete={handleRecordingComplete}
+                    maxDuration={3600}
+                  />
+                ) : (
+                  <div className="flex items-center gap-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                    <Mic className="w-10 h-10 text-red-600" />
+                    <div className="flex-1">
+                      <p className="font-medium truncate">{file.name}</p>
+                      <p className="text-sm text-gray-500">
+                        {Math.floor(recordedDuration / 60)}분 {recordedDuration % 60}초 녹음됨
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setFile(null)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

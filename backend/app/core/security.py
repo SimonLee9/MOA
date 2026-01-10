@@ -1,8 +1,11 @@
 """
 Security utilities for authentication
-JWT token generation and password hashing
+JWT token generation, password hashing, and security utilities
 """
 
+import re
+import secrets
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 
@@ -11,9 +14,66 @@ from passlib.context import CryptContext
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Password hashing context with secure defaults
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12,  # Secure work factor
+)
+
+# Password validation rules
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
+
+class PasswordValidationError(Exception):
+    """Raised when password does not meet requirements"""
+    pass
+
+
+def validate_password_strength(password: str) -> bool:
+    """
+    Validate password meets security requirements
+
+    Requirements:
+    - Minimum 8 characters
+    - Maximum 128 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+    - At least one special character (@$!%*?&)
+
+    Raises:
+        PasswordValidationError: If password doesn't meet requirements
+    """
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise PasswordValidationError(
+            f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
+        )
+
+    if len(password) > PASSWORD_MAX_LENGTH:
+        raise PasswordValidationError(
+            f"Password must be at most {PASSWORD_MAX_LENGTH} characters"
+        )
+
+    if not re.search(r"[a-z]", password):
+        raise PasswordValidationError("Password must contain a lowercase letter")
+
+    if not re.search(r"[A-Z]", password):
+        raise PasswordValidationError("Password must contain an uppercase letter")
+
+    if not re.search(r"\d", password):
+        raise PasswordValidationError("Password must contain a digit")
+
+    if not re.search(r"[@$!%*?&#^()_+=\-\[\]{}|\\:\";<>,./?]", password):
+        raise PasswordValidationError(
+            "Password must contain a special character"
+        )
+
+    return True
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -24,6 +84,37 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Hash a password"""
     return pwd_context.hash(password)
+
+
+def generate_secure_token(length: int = 32) -> str:
+    """Generate a cryptographically secure random token"""
+    return secrets.token_urlsafe(length)
+
+
+def sanitize_user_input(text: str, max_length: int = 1000) -> str:
+    """
+    Sanitize user input to prevent injection attacks
+
+    Args:
+        text: Raw user input
+        max_length: Maximum allowed length
+
+    Returns:
+        Sanitized string
+    """
+    if not text:
+        return ""
+
+    # Truncate to max length
+    text = text[:max_length]
+
+    # Remove null bytes
+    text = text.replace("\x00", "")
+
+    # Strip leading/trailing whitespace
+    text = text.strip()
+
+    return text
 
 
 def create_access_token(

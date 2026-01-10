@@ -12,6 +12,7 @@ from app.models.meeting import (
     ActionItemStatus,
     ActionItemPriority,
 )
+from app.models.notification import Notification, NotificationType
 
 __all__ = [
     "User",
@@ -22,4 +23,6 @@ __all__ = [
     "MeetingStatus",
     "ActionItemStatus",
     "ActionItemPriority",
+    "Notification",
+    "NotificationType",
 ]
