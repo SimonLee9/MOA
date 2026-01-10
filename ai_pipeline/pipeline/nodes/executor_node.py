@@ -86,8 +86,8 @@ async def execute_mcp_tool(tool_payload: Dict[str, Any]) -> Any:
     """
     Execute an MCP tool call
 
-    This is a placeholder for actual MCP client integration.
-    In production, this would use the MCP SDK to call external tools.
+    Uses the MCP client to execute tools on connected servers.
+    Falls back to legacy handlers if MCP is not configured.
 
     Example tool_payload:
     {
@@ -106,18 +106,30 @@ async def execute_mcp_tool(tool_payload: Dict[str, Any]) -> Any:
     Returns:
         Tool execution result
     """
+    from pipeline.integrations.mcp_client import execute_tool, get_mcp_client
+
     tool_name = tool_payload.get("tool")
     args = tool_payload.get("args", {})
 
-    # TODO: Implement actual MCP client integration
-    # For now, simulate execution
+    if not tool_name:
+        raise ValueError("Tool name is required in tool_call_payload")
 
+    # Check if MCP client has the tool available
+    client = get_mcp_client()
+    available_tools = client.get_available_tools()
+    available_tool_names = [t.name for t in available_tools]
+
+    # If MCP is configured for this tool, use MCP client
+    if tool_name in available_tool_names:
+        return await execute_tool(tool_name, args)
+
+    # Fallback to legacy handlers for backward compatibility
     if tool_name == "jira_create_issue":
         return await create_jira_issue(args)
     elif tool_name == "calendar_create_event":
         return await create_calendar_event(args)
     else:
-        raise ValueError(f"Unknown tool: {tool_name}")
+        raise ValueError(f"Unknown tool and no MCP server configured: {tool_name}")
 
 
 # === MCP Tool Implementations ===

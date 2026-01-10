@@ -3,20 +3,46 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileText, CheckSquare, MessageSquare, Loader2, RefreshCw } from 'lucide-react';
-import { meetingsApi } from '@/lib/api';
+import { ArrowLeft, FileText, CheckSquare, MessageSquare, Loader2, RefreshCw, AlertTriangle, Activity } from 'lucide-react';
+import { meetingsApi, reviewApi } from '@/lib/api';
 import { formatDate, formatDuration, getStatusLabel, getStatusColor, getPriorityColor, getPriorityLabel } from '@/lib/utils';
-import type { Meeting } from '@/types/meeting';
+import useProgress from '@/lib/useProgress';
+import type { Meeting, ReviewStatus } from '@/types/meeting';
+import ReviewPanel from '@/components/review/ReviewPanel';
+import ProgressTracker from '@/components/meeting/ProgressTracker';
 
 export default function MeetingDetailPage() {
   const params = useParams();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'summary' | 'actions' | 'transcript'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'actions' | 'transcript' | 'review' | 'progress'>('summary');
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatus | null>(null);
+  const [checkingReview, setCheckingReview] = useState(false);
+
+  // WebSocket progress tracking
+  const progressMeetingId = meeting?.status === 'processing' ? params.id as string : null;
+  const {
+    progress,
+    message,
+    updates,
+    status: wsStatus,
+  } = useProgress(progressMeetingId, {
+    onComplete: () => loadMeeting(),
+    onReviewPending: () => {
+      loadMeeting();
+      checkReviewStatus();
+    },
+  });
 
   useEffect(() => {
     loadMeeting();
   }, [params.id]);
+
+  useEffect(() => {
+    if (meeting && (meeting.status === 'review_pending' || meeting.status === 'processing')) {
+      checkReviewStatus();
+    }
+  }, [meeting?.status]);
 
   const loadMeeting = async () => {
     try {
@@ -27,6 +53,27 @@ export default function MeetingDetailPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const checkReviewStatus = async () => {
+    try {
+      setCheckingReview(true);
+      const status = await reviewApi.getStatus(params.id as string);
+      setReviewStatus(status);
+      if (status.requiresReview) {
+        setActiveTab('review');
+      }
+    } catch (error) {
+      console.error('Failed to check review status:', error);
+    } finally {
+      setCheckingReview(false);
+    }
+  };
+
+  const handleReviewComplete = async () => {
+    await loadMeeting();
+    setReviewStatus(null);
+    setActiveTab('summary');
   };
 
   if (loading) {
@@ -77,18 +124,31 @@ export default function MeetingDetailPage() {
               { id: 'summary', label: '요약', icon: FileText },
               { id: 'actions', label: '액션 아이템', icon: CheckSquare },
               { id: 'transcript', label: '트랜스크립트', icon: MessageSquare },
-            ].map(({ id, label, icon: Icon }) => (
+              ...(meeting.status === 'processing' ? [{ id: 'progress', label: '진행 상황', icon: Activity, processing: true }] : []),
+              ...(reviewStatus?.requiresReview ? [{ id: 'review', label: '검토', icon: AlertTriangle, highlight: true }] : []),
+            ].map(({ id, label, icon: Icon, highlight, processing }: any) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id as any)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === id
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                    ? highlight
+                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                      : processing
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                    : highlight
+                      ? 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      : processing
+                        ? 'bg-purple-50 text-purple-600 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className={`w-4 h-4 ${processing ? 'animate-pulse' : ''}`} />
                 {label}
+                {(highlight || processing) && (
+                  <span className={`w-2 h-2 rounded-full animate-pulse ${highlight ? 'bg-yellow-500' : 'bg-purple-500'}`} />
+                )}
               </button>
             ))}
           </div>
@@ -97,11 +157,35 @@ export default function MeetingDetailPage() {
 
       {/* Content */}
       <main className="max-w-5xl mx-auto px-4 py-8">
-        {meeting.status === 'processing' && (
-          <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-6">
+        {meeting.status === 'processing' && activeTab !== 'progress' && (
+          <div
+            className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-6 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30"
+            onClick={() => setActiveTab('progress')}
+          >
             <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-            <p>AI가 회의 내용을 분석하고 있습니다...</p>
+            <div className="flex-1">
+              <p className="font-medium">AI가 회의 내용을 분석하고 있습니다...</p>
+              {message && <p className="text-sm text-blue-600">{message}</p>}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-24 h-2 bg-blue-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-600 transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <span className="text-sm font-medium text-blue-600">{progress}%</span>
+            </div>
           </div>
+        )}
+
+        {activeTab === 'progress' && meeting.status === 'processing' && (
+          <ProgressTracker
+            progress={progress}
+            message={message}
+            updates={updates}
+            status={wsStatus}
+          />
         )}
 
         {activeTab === 'summary' && meeting.summary && (
@@ -194,7 +278,14 @@ export default function MeetingDetailPage() {
           </div>
         )}
 
-        {!meeting.summary && meeting.status !== 'processing' && (
+        {activeTab === 'review' && reviewStatus?.requiresReview && (
+          <ReviewPanel
+            meetingId={params.id as string}
+            onReviewComplete={handleReviewComplete}
+          />
+        )}
+
+        {!meeting.summary && meeting.status !== 'processing' && activeTab !== 'review' && (
           <p className="text-center text-gray-500 py-8">아직 분석 결과가 없습니다.</p>
         )}
       </main>

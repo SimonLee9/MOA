@@ -88,3 +88,38 @@ export interface ProcessingStatus {
   currentStep?: string;
   errorMessage?: string;
 }
+
+// Review types for Human-in-the-Loop
+export interface ReviewData {
+  minutes: string;
+  keyPoints: string[];
+  decisions: string[];
+  proposedActions: ActionItemReview[];
+  critique: string;
+  retryCount: number;
+}
+
+export interface ActionItemReview {
+  id: string;
+  content: string;
+  assignee?: string;
+  dueDate?: string;
+  priority: ActionItemPriority;
+  status?: string;
+}
+
+export interface ReviewStatus {
+  meetingId: string;
+  status: string;
+  requiresReview: boolean;
+  reviewData?: ReviewData;
+}
+
+export interface ReviewDecision {
+  action: 'approve' | 'reject';
+  feedback?: string;
+  updatedSummary?: string;
+  updatedKeyPoints?: string[];
+  updatedDecisions?: string[];
+  updatedActions?: ActionItemReview[];
+}

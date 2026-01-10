@@ -10,6 +10,8 @@ from app.api.v1.meetings import router as meetings_router
 from app.api.v1.upload import router as upload_router
 from app.api.v1.tus_upload import router as tus_upload_router
 from app.api.v1.review import router as review_router
+from app.api.v1.websocket import router as websocket_router
+from app.api.v1.metrics import router as metrics_router
 
 
 api_router = APIRouter(prefix="/api/v1")
@@ -20,3 +22,5 @@ api_router.include_router(meetings_router)
 api_router.include_router(upload_router)
 api_router.include_router(tus_upload_router)  # Tus resumable upload
 api_router.include_router(review_router)      # Human-in-the-loop review
+api_router.include_router(websocket_router)   # Real-time progress updates
+api_router.include_router(metrics_router)     # Metrics and monitoring

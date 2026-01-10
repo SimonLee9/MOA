@@ -164,12 +164,107 @@ await graph.ainvoke(Command(resume=decision), config)
 
 ### Future Work
 
-- [ ] Implement actual STT integration (Naver Clova)
-- [ ] Complete LLM prompts for summarizer/extractor/critique
-- [ ] Connect real MCP servers (Jira, Google Calendar)
-- [ ] Build frontend HITL review UI
-- [ ] Add streaming support for progress updates
-- [ ] Implement workflow monitoring and metrics
+- [x] ~~Implement actual STT integration (Naver Clova)~~ - Completed
+- [x] ~~Complete LLM prompts for summarizer/extractor/critique~~ - Completed
+- [x] ~~Connect real MCP servers (Jira, Google Calendar)~~ - Completed
+- [x] ~~Build frontend HITL review UI~~ - Completed
+- [x] ~~Add streaming support for progress updates~~ - Completed
+- [x] ~~Implement workflow monitoring and metrics~~ - Completed
+
+---
+
+## [2.1.0] - 2026-01-10
+
+### Completed All MVP Features
+
+#### Frontend HITL Review UI
+- **File**: `frontend/components/review/ReviewPanel.tsx`
+- **Features**:
+  - Full review panel for AI-generated content
+  - Editable summary, key points, decisions
+  - Action items management (add/edit/remove)
+  - Approve/Reject workflow with feedback
+  - Real-time status updates
+
+#### MCP Client Integration
+- **File**: `ai_pipeline/pipeline/integrations/mcp_client.py`
+- **Features**:
+  - Configurable MCP server connections
+  - Support for Jira, Google Calendar, Notion, Slack
+  - Tool registry with validation
+  - Fallback handlers for non-MCP execution
+
+#### WebSocket Progress Streaming
+- **File**: `backend/app/api/v1/websocket.py`
+- **Features**:
+  - Real-time progress updates via WebSocket
+  - Connection manager for multiple clients
+  - Step-by-step progress tracking (STT, Summarize, Extract, Critique, Review)
+  - Auto-reconnect support
+
+- **File**: `frontend/lib/useProgress.ts`
+- **Features**:
+  - React hook for WebSocket connection
+  - Automatic reconnection logic
+  - Progress state management
+  - Event callbacks (onComplete, onReviewPending)
+
+- **File**: `frontend/components/meeting/ProgressTracker.tsx`
+- **Features**:
+  - Visual progress indicator
+  - Step-by-step status display
+  - Recent updates log
+
+#### Metrics and Monitoring API
+- **File**: `backend/app/api/v1/metrics.py`
+- **Endpoints**:
+  - `GET /api/v1/metrics/health` - System health check
+  - `GET /api/v1/metrics/workflows` - Workflow statistics
+  - `GET /api/v1/metrics/daily` - Daily meeting counts
+  - `GET /api/v1/metrics/user` - User-specific metrics
+  - `GET /api/v1/metrics/pipeline/status` - Active processing status
+
+### Updated Files
+
+- `frontend/types/meeting.ts` - Added review types
+- `frontend/lib/api.ts` - Added review API client
+- `frontend/app/meetings/[id]/page.tsx` - Integrated review and progress UI
+- `backend/app/api/v1/router.py` - Added websocket and metrics routers
+- `ai_pipeline/pipeline/nodes/executor_node.py` - Integrated MCP client
+- `.env.example` - Added MCP configuration variables
+
+### Architecture Summary
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     FRONTEND (Next.js)                       │
+├─────────────────────────────────────────────────────────────┤
+│  Upload → Progress Tracker → Review Panel → Results View    │
+│                    ↑                ↓                        │
+│              WebSocket         REST API                      │
+└─────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     BACKEND (FastAPI)                        │
+├─────────────────────────────────────────────────────────────┤
+│  Meetings API │ Review API │ WebSocket │ Metrics API        │
+└─────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   AI PIPELINE (LangGraph)                    │
+├─────────────────────────────────────────────────────────────┤
+│  STT Node → Summarizer → Extractor → Critique → HITL → Save │
+│      │                                            │          │
+│      └──────────── PostgreSQL Checkpointer ───────┘          │
+│                          │                                   │
+│                    MCP Client (optional)                     │
+│            ┌────────────────────────────┐                    │
+│            │ Jira │ Calendar │ Slack    │                    │
+│            └────────────────────────────┘                    │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 

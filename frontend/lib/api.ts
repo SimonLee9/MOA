@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Meeting, MeetingCreate, MeetingListResponse } from '@/types/meeting';
+import type { Meeting, MeetingCreate, MeetingListResponse, ReviewStatus, ReviewDecision } from '@/types/meeting';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -52,6 +52,48 @@ export const meetingsApi = {
   },
   async startProcessing(meetingId: string) {
     return (await apiClient.post(`/meetings/${meetingId}/process`)).data;
+  },
+};
+
+export const reviewApi = {
+  async getStatus(meetingId: string): Promise<ReviewStatus> {
+    const res = await apiClient.get(`/meetings/${meetingId}/review`);
+    // Convert snake_case to camelCase
+    return {
+      meetingId: res.data.meeting_id,
+      status: res.data.status,
+      requiresReview: res.data.requires_review,
+      reviewData: res.data.review_data ? {
+        minutes: res.data.review_data.minutes,
+        keyPoints: res.data.review_data.key_points,
+        decisions: res.data.review_data.decisions,
+        proposedActions: res.data.review_data.proposed_actions,
+        critique: res.data.review_data.critique,
+        retryCount: res.data.review_data.retry_count,
+      } : undefined,
+    };
+  },
+  async submit(meetingId: string, decision: ReviewDecision) {
+    // Convert camelCase to snake_case
+    const payload = {
+      action: decision.action,
+      feedback: decision.feedback,
+      updated_summary: decision.updatedSummary,
+      updated_key_points: decision.updatedKeyPoints,
+      updated_decisions: decision.updatedDecisions,
+      updated_actions: decision.updatedActions?.map(a => ({
+        id: a.id,
+        content: a.content,
+        assignee: a.assignee,
+        due_date: a.dueDate,
+        priority: a.priority,
+        status: a.status || 'approved',
+      })),
+    };
+    return (await apiClient.post(`/meetings/${meetingId}/review`, payload)).data;
+  },
+  async getResults(meetingId: string) {
+    return (await apiClient.get(`/meetings/${meetingId}/results`)).data;
   },
 };
 
