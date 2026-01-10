@@ -150,18 +150,53 @@ async def critique_node(state: MeetingAgentState) -> dict:
 async def human_review_node(state: MeetingAgentState) -> dict:
     """
     Human Review Node
-    Placeholder for human-in-the-loop review
-    This node is interrupted before execution to wait for human input
+    Uses interrupt() to pause execution and wait for human approval
+
+    This implements the Human-in-the-Loop (HITL) pattern from the guide.
+    The graph execution will pause here until the user approves/rejects via API.
     """
-    # Copy draft to final if no changes needed
-    return {
-        "final_summary": state["draft_summary"],
-        "final_key_points": state["key_points"],
-        "final_decisions": state["decisions"],
-        "final_action_items": state["action_items"],
-        "status": "pending_review",
-        "requires_human_review": True,
+    from langgraph.types import interrupt
+
+    # Prepare review data for the user
+    review_data = {
+        "type": "review_request",
+        "meeting_id": state["meeting_id"],
+        "minutes": state["draft_summary"],
+        "key_points": state["key_points"],
+        "decisions": state["decisions"],
+        "proposed_actions": state["action_items"],
+        "critique": state.get("critique", ""),
     }
+
+    # This will pause execution and wait for human input
+    # User must call the resume API with their decision
+    user_decision = interrupt(review_data)
+
+    # After resume, process user's decision
+    if user_decision and user_decision.get("action") == "approve":
+        # User approved, possibly with modifications
+        updated_actions = user_decision.get("updated_actions", state["action_items"])
+        updated_summary = user_decision.get("updated_summary", state["draft_summary"])
+        updated_key_points = user_decision.get("updated_key_points", state["key_points"])
+        updated_decisions = user_decision.get("updated_decisions", state["decisions"])
+
+        return {
+            "final_summary": updated_summary,
+            "final_key_points": updated_key_points,
+            "final_decisions": updated_decisions,
+            "final_action_items": updated_actions,
+            "human_approved": True,
+            "human_feedback": user_decision.get("feedback", "Approved"),
+            "status": "approved",
+        }
+    else:
+        # User rejected, return to summarizer with feedback
+        return {
+            "human_approved": False,
+            "human_feedback": user_decision.get("feedback", "Rejected - needs revision"),
+            "status": "revision_requested",
+            "retry_count": state.get("retry_count", 0) + 1,
+        }
 
 
 async def save_node(state: MeetingAgentState) -> dict:
@@ -183,22 +218,53 @@ async def save_node(state: MeetingAgentState) -> dict:
 def route_after_critique(state: MeetingAgentState) -> Literal["human_review", "summarizer", "end"]:
     """
     Route after critique based on results
-    
-    - If passed: go to human review
-    - If failed and retries < 3: retry summarization
-    - If failed and retries >= 3: end with failure
+
+    Flow:
+    - If critique passed: go to human review
+    - If critique failed and retry_count < 3: retry summarization with feedback
+    - If critique failed and retry_count >= 3: proceed to human review anyway
+    - If system error: end workflow
     """
+    # Check for fatal errors
     if state.get("status") == "failed":
         return "end"
-    
+
+    # If critique passed, proceed to human review
     if state.get("critique_passed", False):
         return "human_review"
-    
-    if state.get("retry_count", 0) < 3:
+
+    # If critique failed, check retry count
+    retry_count = state.get("retry_count", 0)
+
+    if retry_count < 3:
+        # Retry with critique feedback
         return "summarizer"
-    
-    # Max retries reached, proceed anyway
-    return "human_review"
+    else:
+        # Max retries reached, let human decide
+        return "human_review"
+
+
+def route_after_human_review(state: MeetingAgentState) -> Literal["save", "summarizer", "end"]:
+    """
+    Route after human review based on approval
+
+    Flow:
+    - If approved: save results
+    - If rejected and can retry: go back to summarizer with human feedback
+    - If rejected and max retries: end with failure
+    """
+    # If approved, save and complete
+    if state.get("human_approved", False):
+        return "save"
+
+    # If rejected, check if we can retry
+    retry_count = state.get("retry_count", 0)
+
+    if retry_count < 5:  # Allow more retries for human feedback
+        return "summarizer"
+    else:
+        # Max retries reached, end workflow
+        return "end"
 
 
 def route_after_stt(state: MeetingAgentState) -> Literal["summarizer", "end"]:
@@ -210,20 +276,29 @@ def route_after_stt(state: MeetingAgentState) -> Literal["summarizer", "end"]:
 
 # === Graph Builder ===
 
-def create_meeting_graph():
+async def create_meeting_graph():
     """
-    Create the meeting processing LangGraph
-    
-    Flow:
+    Create the meeting processing LangGraph with PostgreSQL persistence
+
+    Enhanced Flow (following the guide):
     STT -> Summarizer -> ActionExtractor -> Critique -> HumanReview -> Save
-                            ^                    |
-                            |____(retry)_________|
-    
+              ^              ^                  |             |
+              |_____________(auto retry)________|             |
+              |_____________(human feedback)_________________|
+
+    Key Features:
+    1. PostgreSQL checkpointer for long-running workflows
+    2. Human-in-the-loop with interrupt() pattern
+    3. Automatic retry loop based on critique
+    4. Human feedback loop for revision requests
+
     Returns:
-        Compiled LangGraph with checkpointing
+        Compiled LangGraph with PostgreSQL checkpointing
     """
+    from pipeline.checkpointer import get_checkpointer
+
     builder = StateGraph(MeetingAgentState)
-    
+
     # Add nodes
     builder.add_node("stt", stt_node)
     builder.add_node("summarizer", summarizer_node)
@@ -231,10 +306,10 @@ def create_meeting_graph():
     builder.add_node("critique", critique_node)
     builder.add_node("human_review", human_review_node)
     builder.add_node("save", save_node)
-    
+
     # Set entry point
     builder.set_entry_point("stt")
-    
+
     # Add edges
     builder.add_conditional_edges(
         "stt",
@@ -244,11 +319,11 @@ def create_meeting_graph():
             "end": END,
         }
     )
-    
+
     builder.add_edge("summarizer", "extract_actions")
     builder.add_edge("extract_actions", "critique")
-    
-    # Conditional edge after critique (retry loop)
+
+    # Conditional edge after critique (automatic retry loop)
     builder.add_conditional_edges(
         "critique",
         route_after_critique,
@@ -258,17 +333,29 @@ def create_meeting_graph():
             "end": END,
         }
     )
-    
-    builder.add_edge("human_review", "save")
-    builder.add_edge("save", END)
-    
-    # Compile with checkpointing and interrupt
-    memory = MemorySaver()
-    graph = builder.compile(
-        checkpointer=memory,
-        interrupt_before=["human_review"],  # Wait for human review
+
+    # Conditional edge after human review (human feedback loop)
+    builder.add_conditional_edges(
+        "human_review",
+        route_after_human_review,
+        {
+            "save": "save",
+            "summarizer": "summarizer",
+            "end": END,
+        }
     )
-    
+
+    builder.add_edge("save", END)
+
+    # Get PostgreSQL checkpointer for persistent state
+    checkpointer = await get_checkpointer()
+
+    # Compile with PostgreSQL checkpointing
+    # Note: interrupt_before is removed since we use interrupt() inside the node
+    graph = builder.compile(
+        checkpointer=checkpointer,
+    )
+
     return graph
 
 
@@ -282,18 +369,26 @@ async def process_meeting(
 ) -> MeetingAgentState:
     """
     Process a meeting through the full pipeline
-    
+
+    This function initiates the LangGraph workflow which will:
+    1. Transcribe audio (STT)
+    2. Generate summary and extract action items
+    3. Self-critique the results
+    4. Pause for human review (via interrupt)
+    5. Save approved results
+
     Args:
-        meeting_id: UUID of the meeting
-        audio_file_url: URL to the audio file
+        meeting_id: UUID of the meeting (used as thread_id)
+        audio_file_url: URL/path to the audio file
         meeting_title: Title of the meeting
-        meeting_date: Optional date string
-    
+        meeting_date: Optional date string (YYYY-MM-DD)
+
     Returns:
-        Final state after processing (may be interrupted for review)
+        Final state after processing
+        Note: Will be interrupted at human_review_node
     """
-    graph = create_meeting_graph()
-    
+    graph = await create_meeting_graph()
+
     # Create initial state
     initial_state = create_initial_state(
         meeting_id=meeting_id,
@@ -301,44 +396,62 @@ async def process_meeting(
         meeting_title=meeting_title,
         meeting_date=meeting_date,
     )
-    
-    # Run the graph
+
+    # Configure with thread_id for checkpoint persistence
     config = {"configurable": {"thread_id": meeting_id}}
-    
+
+    # Run the graph (will pause at interrupt)
     final_state = await graph.ainvoke(initial_state, config)
-    
+
     return final_state
 
 
 async def resume_after_review(
     meeting_id: str,
-    human_feedback: str = None,
-    approved: bool = True,
+    action: str = "approve",
+    feedback: str = None,
+    updated_summary: str = None,
+    updated_key_points: list = None,
+    updated_decisions: list = None,
+    updated_actions: list = None,
 ) -> MeetingAgentState:
     """
     Resume processing after human review
-    
+
+    This function is called when a user approves or rejects the meeting results.
+    It uses the Command API to pass data to the interrupted node.
+
     Args:
-        meeting_id: UUID of the meeting
-        human_feedback: Optional feedback from reviewer
-        approved: Whether the review was approved
-    
+        meeting_id: UUID of the meeting (thread_id)
+        action: "approve" or "reject"
+        feedback: Optional human feedback text
+        updated_summary: Optional modified summary
+        updated_key_points: Optional modified key points
+        updated_decisions: Optional modified decisions
+        updated_actions: Optional modified action items
+
     Returns:
-        Final state after completion
+        Final state after completion or revision
     """
-    graph = create_meeting_graph()
+    from langgraph.types import Command
+
+    graph = await create_meeting_graph()
     config = {"configurable": {"thread_id": meeting_id}}
-    
-    # Get current state
-    state = await graph.aget_state(config)
-    
-    # Update with human feedback
-    update = {
-        "human_feedback": human_feedback,
-        "human_approved": approved,
+
+    # Prepare user decision data for the interrupt() call
+    user_decision = {
+        "action": action,
+        "feedback": feedback,
+        "updated_summary": updated_summary,
+        "updated_key_points": updated_key_points,
+        "updated_decisions": updated_decisions,
+        "updated_actions": updated_actions,
     }
-    
-    # Resume execution
-    final_state = await graph.ainvoke(update, config)
-    
+
+    # Resume with Command to pass data to interrupt()
+    final_state = await graph.ainvoke(
+        Command(resume=user_decision),
+        config
+    )
+
     return final_state

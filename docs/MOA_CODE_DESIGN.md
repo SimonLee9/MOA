@@ -1,8 +1,14 @@
 # MOA (Minutes Of Action) - 코드 설계 문서
 
-> **Version**: 1.0.0  
-> **Last Updated**: 2025-01-10  
-> **Focus**: 회의 자동 요약 (Meeting Auto-Summary)
+> **Version**: 2.0.0
+> **Last Updated**: 2026-01-10
+> **Focus**: LangGraph 기반 차세대 회의 인텔리전스 플랫폼
+>
+> **주요 업데이트**:
+> - Tus 프로토콜 기반 재개 가능한 업로드
+> - PostgreSQL 체크포인터를 통한 영구 상태 관리
+> - Modern Human-in-the-Loop (interrupt 패턴)
+> - MCP 통합 준비 완료
 
 ---
 
@@ -17,17 +23,21 @@ MOA는 단순한 회의록 도구가 아닌, **"회의를 실행으로 전환하
 
 ### 1.2 MVP 범위 (Phase 1: 회의 자동 요약)
 
-| 기능 | 포함 여부 | 우선순위 |
-|------|----------|---------|
-| 오디오 파일 업로드 | ✅ | P0 |
-| Speech-to-Text (STT) | ✅ | P0 |
-| 화자 분리 (Diarization) | ✅ | P0 |
-| AI 기반 요약 생성 | ✅ | P0 |
-| 액션 아이템 추출 | ✅ | P0 |
-| 웹 대시보드 | ✅ | P0 |
-| 사용자 인증 | ✅ | P1 |
-| 실시간 녹음 | ❌ | Phase 2 |
-| 외부 서비스 연동 (Jira/Notion) | ❌ | Phase 3 |
+| 기능 | 포함 여부 | 우선순위 | 구현 상태 |
+|------|----------|---------|----------|
+| **재개 가능한 오디오 업로드 (Tus)** | ✅ | P0 | ✅ 완료 |
+| Speech-to-Text (STT) | ✅ | P0 | 🔄 통합 중 |
+| 화자 분리 (Diarization) | ✅ | P0 | 🔄 통합 중 |
+| AI 기반 요약 생성 | ✅ | P0 | ✅ 완료 |
+| 액션 아이템 추출 | ✅ | P0 | ✅ 완료 |
+| **Human-in-the-Loop 검토** | ✅ | P0 | ✅ 완료 |
+| **자동 품질 검증 (Critique)** | ✅ | P0 | ✅ 완료 |
+| **PostgreSQL 상태 영속화** | ✅ | P0 | ✅ 완료 |
+| 웹 대시보드 | ✅ | P1 | 📋 계획됨 |
+| 사용자 인증 | ✅ | P1 | ✅ 완료 |
+| **MCP 기반 액션 실행** | ✅ | P1 | ✅ 준비 완료 |
+| 실시간 녹음 | ❌ | Phase 2 | - |
+| 외부 서비스 연동 (Jira/Notion) | ✅ | Phase 2 | ✅ MCP 준비 |
 
 ---
 
@@ -539,9 +549,15 @@ audio_file: <binary data>
 
 ---
 
-## 6. AI 파이프라인 설계 (LangGraph)
+## 6. AI 파이프라인 설계 (LangGraph v2.0)
 
-### 6.1 상태 스키마
+> **2.0 주요 변경사항**:
+> - PostgreSQL 체크포인터 도입 (영구 상태 저장)
+> - `interrupt()` 패턴으로 HITL 구현
+> - 이중 재시도 메커니즘 (Critique + Human Feedback)
+> - MCP 통합을 위한 `tool_call_payload` 추가
+
+### 6.1 상태 스키마 (Enhanced)
 
 ```python
 # ai_pipeline/pipeline/state.py
@@ -559,43 +575,64 @@ class TranscriptSegment(TypedDict):
 
 
 class ActionItem(TypedDict):
+    """Enhanced with MCP integration"""
+    id: str  # NEW: Unique identifier
     content: str
     assignee: Optional[str]
     due_date: Optional[str]
     priority: Literal["low", "medium", "high", "urgent"]
+    tool_call_payload: Optional[dict]  # NEW: MCP tool call data
+    status: Literal["pending", "approved", "rejected", "executed"]  # NEW
 
 
 class MeetingAgentState(TypedDict):
     # Input
     meeting_id: str
-    audio_file_path: str
-    
+    audio_file_url: str  # Changed from audio_file_path
+    meeting_title: str  # NEW
+    meeting_date: Optional[str]  # NEW
+
     # STT Output
     transcript_segments: List[TranscriptSegment]
     raw_text: str
-    
+    speakers: List[str]  # NEW
+    audio_duration: float  # NEW
+
     # LLM Outputs
     draft_summary: str
     key_points: List[str]
     decisions: List[str]
     action_items: List[ActionItem]
-    
+
     # Quality Control
     critique: str
+    critique_issues: List[str]  # NEW
     critique_passed: bool
     retry_count: int
-    
+
     # Human-in-the-Loop
     requires_human_review: bool
     human_feedback: Optional[str]
-    
-    # Final
-    final_output: Optional[dict]
-    status: Literal["processing", "review_pending", "completed", "failed"]
+    human_approved: bool  # NEW
+
+    # Final Output (after approval)
+    final_summary: Optional[str]  # NEW
+    final_key_points: Optional[List[str]]  # NEW
+    final_decisions: Optional[List[str]]  # NEW
+    final_action_items: Optional[List[ActionItem]]  # NEW
+
+    # Metadata
+    status: Literal[
+        "started", "stt_complete", "summarized",
+        "actions_extracted", "critique_complete",
+        "pending_review", "approved", "completed", "failed"
+    ]
     error_message: Optional[str]
+    started_at: str  # NEW
+    completed_at: Optional[str]  # NEW
 ```
 
-### 6.2 그래프 구조
+### 6.2 그래프 구조 v2.0 (Enhanced with Dual Retry Loops)
 
 ```
                     ┌─────────────┐
@@ -605,70 +642,143 @@ class MeetingAgentState(TypedDict):
                            ▼
                     ┌─────────────┐
                     │  STT Node   │ ◄── Naver Clova / Whisper
-                    │ (음성→텍스트) │
+                    │ (음성→텍스트) │     (화자 분리 포함)
                     └──────┬──────┘
                            │
                            ▼
                     ┌─────────────┐
-                    │ Summarizer  │ ◄── Claude API
-                    │   Node      │
-                    └──────┬──────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │  Action     │ ◄── Claude API
-                    │ Extractor   │
-                    └──────┬──────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │  Critique   │ ◄── 자가 검증
-                    │    Node     │
-                    └──────┬──────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-            (Pass)  ▼             ▼  (Fail, retry < 3)
-         ┌─────────────┐   ┌─────────────┐
-         │   Human     │   │   Retry     │───┐
-         │   Review    │   │             │   │
-         └──────┬──────┘   └─────────────┘   │
-                │                 ▲          │
-                │                 └──────────┘
-                │  (Approve)            
-                ▼                       
-         ┌─────────────┐               
-         │    Save     │               
-         │    Node     │               
-         └──────┬──────┘               
-                │
-                ▼
-         ┌─────────────┐
-         │     END     │
-         └─────────────┘
+        ┌──────────►│ Summarizer  │ ◄── Claude API
+        │           │   Node      │     (요약 + 핵심 포인트 + 결정사항)
+        │           └──────┬──────┘
+        │                  │
+        │                  ▼
+        │           ┌─────────────┐
+        │           │  Action     │ ◄── Claude API
+        │           │ Extractor   │     (액션 아이템 + MCP 매핑)
+        │           └──────┬──────┘
+        │                  │
+        │                  ▼
+        │           ┌─────────────┐
+        │           │  Critique   │ ◄── 자가 검증 (품질 체크)
+        │           │    Node     │
+        │           └──────┬──────┘
+        │                  │
+        │           ┌──────┴──────────┐
+        │           │                 │
+        │      (Pass)                 (Fail, retry < 3)
+        │           │                 │
+        │           ▼                 │
+        │    ┌─────────────┐          │
+        │    │   Human     │          │
+        │    │   Review    │◄─────────┘ (자동 재시도 루프)
+        │    │    Node     │
+        │    └──────┬──────┘
+        │           │
+        │           │  interrupt() - 실행 일시 정지
+        │           │  사용자 API 호출 대기...
+        │           │  Command(resume=...) - 재개
+        │           │
+        │    ┌──────┴───────┐
+        │    │              │
+        │(Approve)      (Reject, retry < 5)
+        │    │              │
+        │    ▼              │
+        │ ┌─────────────┐   │
+        │ │    Save     │   │
+        │ │    Node     │   │
+        │ └──────┬──────┘   │
+        │        │          │
+        └────────┴──────────┘ (인간 피드백 재시도 루프)
+                 │
+                 ▼
+          ┌─────────────┐
+          │     END     │
+          └─────────────┘
 ```
 
-### 6.3 노드 구현 상세
+**주요 개선사항**:
+- **자동 재시도 루프**: Critique 실패 시 최대 3회 자동 재시도
+- **인간 피드백 루프**: 사용자 거부 시 최대 5회 피드백 반영 재시도
+- **영구 상태 저장**: PostgreSQL 체크포인터로 멀티 데이 워크플로우 지원
+- **interrupt() 패턴**: 노드 내부에서 실행 일시 정지 (최신 LangGraph)
+
+### 6.3 노드 구현 상세 v2.0
+
+#### 6.3.1 PostgreSQL 체크포인터 설정
+
+```python
+# ai_pipeline/pipeline/checkpointer.py
+
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+async def create_checkpointer() -> AsyncPostgresSaver:
+    """PostgreSQL 체크포인터 생성 (영구 상태 저장)"""
+    connection_string = os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://moa:moa@localhost:5432/moa"
+    )
+
+    checkpointer = AsyncPostgresSaver.from_conn_string(connection_string)
+    await checkpointer.setup()  # 체크포인트 테이블 생성
+
+    return checkpointer
+```
+
+#### 6.3.2 Human Review Node (interrupt 패턴)
+
+```python
+# ai_pipeline/pipeline/graph.py
+
+from langgraph.types import interrupt
+
+async def human_review_node(state: MeetingAgentState) -> dict:
+    """
+    Human-in-the-Loop 검토 노드
+    interrupt()를 사용하여 실행을 일시 정지하고 사용자 입력 대기
+    """
+    # 검토 데이터 준비
+    review_data = {
+        "type": "review_request",
+        "meeting_id": state["meeting_id"],
+        "minutes": state["draft_summary"],
+        "key_points": state["key_points"],
+        "decisions": state["decisions"],
+        "proposed_actions": state["action_items"],
+        "critique": state.get("critique", ""),
+    }
+
+    # 실행 일시 정지 - 사용자가 API를 통해 재개할 때까지 대기
+    user_decision = interrupt(review_data)
+
+    # 사용자 결정 처리
+    if user_decision and user_decision.get("action") == "approve":
+        return {
+            "final_summary": user_decision.get("updated_summary", state["draft_summary"]),
+            "final_action_items": user_decision.get("updated_actions", state["action_items"]),
+            "human_approved": True,
+            "status": "approved",
+        }
+    else:
+        return {
+            "human_approved": False,
+            "human_feedback": user_decision.get("feedback"),
+            "status": "revision_requested",
+            "retry_count": state.get("retry_count", 0) + 1,
+        }
+```
+
+#### 6.3.3 그래프 빌더 (PostgreSQL 체크포인터)
 
 ```python
 # ai_pipeline/pipeline/graph.py
 
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from .state import MeetingAgentState
-from .nodes import (
-    stt_node,
-    summarizer_node,
-    action_extractor_node,
-    critique_node,
-    human_review_node,
-    save_node
-)
+from pipeline.checkpointer import get_checkpointer
 
-
-def create_meeting_graph():
-    """회의 처리 LangGraph 생성"""
-    
+async def create_meeting_graph():
+    """
+    회의 처리 LangGraph 생성 (PostgreSQL 영구 저장)
+    """
     builder = StateGraph(MeetingAgentState)
     
     # 노드 추가

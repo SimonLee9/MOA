@@ -18,10 +18,13 @@ class TranscriptSegment(TypedDict):
 
 class ActionItem(TypedDict):
     """Extracted action item"""
+    id: str
     content: str
     assignee: Optional[str]
     due_date: Optional[str]  # ISO format YYYY-MM-DD
     priority: Literal["low", "medium", "high", "urgent"]
+    tool_call_payload: Optional[dict]  # MCP tool call payload for execution
+    status: Literal["pending", "approved", "rejected", "executed"]
 
 
 class MeetingAgentState(TypedDict):
