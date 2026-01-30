@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Meeting, MeetingCreate, MeetingListResponse, MeetingSearchParams, ReviewStatus, ReviewDecision, ActionItem, ActionItemCreate } from '@/types/meeting';
+import type { Team, TeamDetail, TeamCreate, TeamUpdate, TeamListResponse, TeamMember, TeamMemberAdd, TeamMemberUpdate, TeamInvitation, TeamInvitationCreate, TeamInvitationAccept } from '@/types/team';
 import { transformToCamelCase, transformToSnakeCase } from './apiTransform';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -343,6 +344,57 @@ export const notificationsApi = {
   },
   async delete(notificationId: string): Promise<void> {
     await apiClient.delete(`/notifications/${notificationId}`);
+  },
+};
+
+// Teams API
+export const teamsApi = {
+  async list(page = 1, size = 20): Promise<TeamListResponse> {
+    const res = await apiClient.get('/teams', { params: { page, size } });
+    return res.data;
+  },
+  async get(teamId: string): Promise<TeamDetail> {
+    const res = await apiClient.get(`/teams/${teamId}`);
+    return res.data;
+  },
+  async create(data: TeamCreate): Promise<Team> {
+    const res = await apiClient.post('/teams', data);
+    return res.data;
+  },
+  async update(teamId: string, data: TeamUpdate): Promise<Team> {
+    const res = await apiClient.patch(`/teams/${teamId}`, data);
+    return res.data;
+  },
+  async delete(teamId: string): Promise<void> {
+    await apiClient.delete(`/teams/${teamId}`);
+  },
+  // Members
+  async addMember(teamId: string, data: TeamMemberAdd): Promise<TeamMember> {
+    const res = await apiClient.post(`/teams/${teamId}/members`, data);
+    return res.data;
+  },
+  async updateMember(teamId: string, userId: string, data: TeamMemberUpdate): Promise<TeamMember> {
+    const res = await apiClient.patch(`/teams/${teamId}/members/${userId}`, data);
+    return res.data;
+  },
+  async removeMember(teamId: string, userId: string): Promise<void> {
+    await apiClient.delete(`/teams/${teamId}/members/${userId}`);
+  },
+  // Invitations
+  async createInvitation(teamId: string, data: TeamInvitationCreate): Promise<TeamInvitation> {
+    const res = await apiClient.post(`/teams/${teamId}/invitations`, data);
+    return res.data;
+  },
+  async getPendingInvitations(): Promise<TeamInvitation[]> {
+    const res = await apiClient.get('/teams/invitations/pending');
+    return res.data;
+  },
+  async acceptInvitation(data: TeamInvitationAccept): Promise<TeamMember> {
+    const res = await apiClient.post('/teams/invitations/accept', data);
+    return res.data;
+  },
+  async cancelInvitation(teamId: string, invitationId: string): Promise<void> {
+    await apiClient.delete(`/teams/${teamId}/invitations/${invitationId}`);
   },
 };
 
