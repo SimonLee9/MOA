@@ -16,6 +16,7 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.notification import Notification
+    from app.models.team import Team
 
 
 class MeetingStatus(str, enum.Enum):
@@ -57,6 +58,13 @@ class Meeting(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True
+    )
+    team_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Team this meeting belongs to (optional)"
     )
     title: Mapped[str] = mapped_column(
         String(255),
@@ -102,6 +110,10 @@ class Meeting(Base):
     # Relationships
     user: Mapped["User"] = relationship(
         "User",
+        back_populates="meetings"
+    )
+    team: Mapped[Optional["Team"]] = relationship(
+        "Team",
         back_populates="meetings"
     )
     summary: Mapped[Optional["MeetingSummary"]] = relationship(
