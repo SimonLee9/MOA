@@ -40,12 +40,20 @@ class MeetingAgentState(TypedDict):
     audio_file_url: str
     meeting_title: str
     meeting_date: Optional[str]
+
+    # === Processing Options ===
+    use_claude_audio: bool  # True: Claude Audio 통합 처리, False: Clova STT
     
     # === STT Output ===
     transcript_segments: Annotated[List[TranscriptSegment], operator.add]
     raw_text: str
     speakers: List[str]
     audio_duration: float
+
+    # === Claude Audio Output (use_claude_audio=True일 때) ===
+    claude_audio_summary: Optional[str]
+    claude_audio_key_points: Optional[List[str]]
+    claude_audio_actions: Optional[List[dict]]
     
     # === LLM Outputs ===
     draft_summary: str
@@ -90,17 +98,19 @@ def create_initial_state(
     meeting_id: str,
     audio_file_url: str,
     meeting_title: str,
-    meeting_date: Optional[str] = None
+    meeting_date: Optional[str] = None,
+    use_claude_audio: bool = False,
 ) -> MeetingAgentState:
     """
     Create initial state for a new meeting processing job
-    
+
     Args:
         meeting_id: UUID of the meeting
         audio_file_url: URL to the audio file in storage
         meeting_title: Title of the meeting
         meeting_date: Optional date of the meeting (YYYY-MM-DD)
-    
+        use_claude_audio: True면 Claude Audio 통합 처리, False면 Clova STT
+
     Returns:
         Initial MeetingAgentState
     """
@@ -110,12 +120,20 @@ def create_initial_state(
         audio_file_url=audio_file_url,
         meeting_title=meeting_title,
         meeting_date=meeting_date,
-        
+
+        # Processing Options
+        use_claude_audio=use_claude_audio,
+
         # STT Output (empty initially)
         transcript_segments=[],
         raw_text="",
         speakers=[],
         audio_duration=0.0,
+
+        # Claude Audio Output (empty initially)
+        claude_audio_summary=None,
+        claude_audio_key_points=None,
+        claude_audio_actions=None,
         
         # LLM Outputs (empty initially)
         draft_summary="",
