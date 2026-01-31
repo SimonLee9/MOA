@@ -41,14 +41,24 @@ async def on_upload_complete(file_id: str, file_path: str):
 
 # === Tus Router Configuration ===
 
-tus_config = {
-    "store_dir": str(UPLOAD_DIR),
-    "location": "/api/v1/upload/files",
-    "max_size": 2 * 1024 * 1024 * 1024,  # 2GB max file size
-    "upload_finish_cb": on_upload_complete,
-}
+try:
+    # Try new API first (fastapi-tusd >= 0.100)
+    tus_config = {
+        "store_dir": str(UPLOAD_DIR),
+        "location": "/api/v1/upload/files",
+        "max_size": 2 * 1024 * 1024 * 1024,  # 2GB max file size
+    }
+    tus_router = TusRouter(**tus_config)
+except TypeError:
+    # Fallback for older versions with upload_finish_cb
+    tus_config = {
+        "store_dir": str(UPLOAD_DIR),
+        "location": "/api/v1/upload/files",
+        "max_size": 2 * 1024 * 1024 * 1024,
+        "upload_finish_cb": on_upload_complete,
+    }
+    tus_router = TusRouter(**tus_config)
 
-tus_router = TusRouter(**tus_config)
 router.include_router(tus_router, prefix="/files")
 
 
