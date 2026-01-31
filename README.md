@@ -310,6 +310,76 @@ pytest
 
 ---
 
+## 🔍 트러블슈팅
+
+### Docker 환경 실행 시 주의사항
+
+#### 1. 환경 변수 설정
+Docker Compose 환경에서는 데이터베이스 호스트를 서비스명으로 지정해야 합니다:
+
+```bash
+# .env 파일에서
+DATABASE_URL=postgresql+asyncpg://moa:moa_dev_password@db:5432/moa  # localhost가 아닌 db
+```
+
+#### 2. bcrypt 초기화 문제 (Known Issue)
+현재 `passlib[bcrypt]` 라이브러리의 초기화 과정에서 72바이트 제한 관련 에러가 발생할 수 있습니다.
+
+**증상**:
+```
+ValueError: password cannot be longer than 72 bytes
+```
+
+**임시 해결책**:
+- `backend/app/core/security.py`에서 비밀번호를 72바이트로 자동 절단
+- 백엔드 Dockerfile에 `build-essential`, `libffi-dev` 추가하여 bcrypt 네이티브 빌드 지원
+
+**향후 개선 예정**:
+- passlib 버전 다운그레이드 또는 대체 라이브러리 검토
+
+#### 3. 포트 충돌
+프론트엔드가 3000 포트를 사용 중일 경우:
+
+```bash
+# 포트 사용 중인 프로세스 확인 (Windows)
+netstat -ano | findstr :3000
+
+# 프로세스 종료
+taskkill //F //PID <프로세스ID>
+
+# 프론트엔드 재시작
+cd frontend && npm run dev
+```
+
+#### 4. Docker 빌드 캐시 문제
+코드 변경 후 반영이 안 될 경우:
+
+```bash
+# 컨테이너 재빌드
+docker-compose up -d --build
+
+# 또는 완전히 클린 빌드
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### 서비스 상태 확인
+
+```bash
+# 모든 컨테이너 상태 확인
+docker-compose ps
+
+# 특정 서비스 로그 확인
+docker-compose logs -f backend
+docker-compose logs -f ai_worker
+
+# 백엔드 헬스체크
+curl http://localhost:8000/health
+```
+
+---
+
 ## 📝 라이선스
 
 MIT License
