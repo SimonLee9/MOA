@@ -292,6 +292,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - **[설계 문서](docs/MOA_CODE_DESIGN.md)** - 전체 시스템 설계
 - **[아키텍처 가이드](docs/LANGGRAPH_ARCHITECTURE.md)** - LangGraph 워크플로우 상세
 - **[API 가이드 v2.0](docs/API_GUIDE_V2.md)** - API 엔드포인트 레퍼런스
+- **[트러블슈팅 가이드](docs/TROUBLESHOOTING.md)** - 문제 해결 방법
 - **[변경 이력](CHANGELOG.md)** - 버전별 변경사항
 
 ---
@@ -314,28 +315,38 @@ pytest
 
 ### Docker 환경 실행 시 주의사항
 
-#### 1. 환경 변수 설정
-Docker Compose 환경에서는 데이터베이스 호스트를 서비스명으로 지정해야 합니다:
+#### 1. 환경 변수 설정 (중요!)
+Docker Compose 환경에서는 **서비스 호스트를 Docker 네트워크 서비스명으로** 지정해야 합니다:
 
 ```bash
-# .env 파일에서
-DATABASE_URL=postgresql+asyncpg://moa:moa_dev_password@db:5432/moa  # localhost가 아닌 db
+# .env 파일에서 (Docker 환경)
+DATABASE_URL=postgresql+asyncpg://moa:moa_dev_password@db:5432/moa
+REDIS_URL=redis://redis:6379
+MINIO_ENDPOINT=minio:9000
+
+# localhost가 아닌 Docker 서비스명(db, redis, minio) 사용!
 ```
 
-#### 2. bcrypt 초기화 문제 (Known Issue)
-현재 `passlib[bcrypt]` 라이브러리의 초기화 과정에서 72바이트 제한 관련 에러가 발생할 수 있습니다.
+**일반적인 실수**: `localhost:6379`로 설정하면 컨테이너 내부에서 자기 자신만 찾아 연결 실패합니다.
 
-**증상**:
+#### 2. 인증 없이 데모 모드로 사용하기
+프로젝트는 개발 편의를 위해 **선택적 인증(Optional Auth)**을 지원합니다.
+
+**데모 사용자 자동 생성**:
+- 첫 실행 시 데이터베이스에 `demo@moa.local` 사용자가 자동 생성됩니다
+- 인증 토큰 없이 API 호출 시 자동으로 데모 사용자로 처리됩니다
+- 프론트엔드 로그인 없이 바로 회의 업로드 가능
+
+**수동으로 데모 사용자 생성** (필요시):
+```bash
+docker exec moa-db psql -U moa -d moa -c \
+  "INSERT INTO users (id, email, name, hashed_password, is_active, created_at) \
+   VALUES (gen_random_uuid(), 'demo@moa.local', 'Demo User', \
+   '\$2b\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyFz.c/oG9K2', \
+   true, NOW()) ON CONFLICT DO NOTHING;"
 ```
-ValueError: password cannot be longer than 72 bytes
-```
 
-**임시 해결책**:
-- `backend/app/core/security.py`에서 비밀번호를 72바이트로 자동 절단
-- 백엔드 Dockerfile에 `build-essential`, `libffi-dev` 추가하여 bcrypt 네이티브 빌드 지원
-
-**향후 개선 예정**:
-- passlib 버전 다운그레이드 또는 대체 라이브러리 검토
+**프로덕션 환경**: 반드시 JWT 인증을 활성화하고 데모 사용자를 비활성화하세요.
 
 #### 3. 포트 충돌
 프론트엔드가 3000 포트를 사용 중일 경우:

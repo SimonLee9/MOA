@@ -210,19 +210,56 @@ docs(readme): 설치 가이드 업데이트
 ## 환경 변수
 
 필수 환경 변수 (.env):
-```
-DATABASE_URL=postgresql://user:pass@host:5432/db
+
+**중요**: Docker Compose 환경에서는 서비스명 사용!
+```bash
+# Docker 환경 (권장)
+DATABASE_URL=postgresql+asyncpg://moa:moa_dev_password@db:5432/moa
+REDIS_URL=redis://redis:6379
+MINIO_ENDPOINT=minio:9000
+
+# 로컬 개발 환경
+DATABASE_URL=postgresql+asyncpg://moa:moa_dev_password@localhost:5432/moa
 REDIS_URL=redis://localhost:6379
+MINIO_ENDPOINT=localhost:9000
+
+# API 키
 CLOVA_API_KEY=xxx
+CLOVA_API_SECRET=xxx
 CLAUDE_API_KEY=xxx
 JWT_SECRET_KEY=xxx
 ```
 
+## 개발 환경 설정
+
+### Docker Compose 사용 (권장)
+```bash
+# 1. 환경 변수 설정
+cp .env.example .env
+# .env 편집하여 API 키 설정
+
+# 2. 컨테이너 시작
+docker-compose up -d
+
+# 3. 서비스 확인
+# Frontend: http://localhost:3002
+# Backend: http://localhost:8000
+# API Docs: http://localhost:8000/docs
+```
+
+### 인증 없이 사용하기 (개발 모드)
+프로젝트는 개발 편의를 위해 **선택적 인증**을 지원합니다.
+- 데모 사용자(`demo@moa.local`)가 자동 생성됩니다
+- JWT 토큰 없이도 API 사용 가능
+- 프론트엔드에서 로그인 없이 바로 회의 업로드 가능
+
 ## 참고 문서
 
 - `docs/MOA_CODE_DESIGN.md` - 상세 설계 문서
-- `docs/API.md` - API 명세 (자동 생성: /docs)
-- `docs/DEPLOYMENT.md` - 배포 가이드
+- `docs/LANGGRAPH_ARCHITECTURE.md` - LangGraph 아키텍처 가이드
+- `docs/API_GUIDE_V2.md` - API 명세
+- `docs/TROUBLESHOOTING.md` - 트러블슈팅 가이드
+- `/docs` (http://localhost:8000/docs) - 자동 생성 API 문서
 
 ---
 

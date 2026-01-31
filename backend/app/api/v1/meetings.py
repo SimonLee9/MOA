@@ -12,7 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_user
 from app.models.user import User
 from app.models.meeting import (
     Meeting,
@@ -47,22 +47,43 @@ router = APIRouter(prefix="/meetings", tags=["Meetings"])
 async def create_meeting(
     meeting_data: MeetingCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
     """
     Create a new meeting
     """
+    # If no authenticated user, create/get demo user
+    if current_user is None:
+        from app.core.security import get_password_hash
+        result = await db.execute(
+            select(User).where(User.email == "demo@moa.local")
+        )
+        demo_user = result.scalar_one_or_none()
+
+        if demo_user is None:
+            demo_user = User(
+                email="demo@moa.local",
+                name="Demo User",
+                hashed_password=get_password_hash("DemoUser123!"),
+                is_active=True
+            )
+            db.add(demo_user)
+            await db.commit()
+            await db.refresh(demo_user)
+
+        current_user = demo_user
+
     meeting = Meeting(
         user_id=current_user.id,
         title=meeting_data.title,
         meeting_date=meeting_data.meeting_date,
         status=DBMeetingStatus.UPLOADED,
     )
-    
+
     db.add(meeting)
     await db.commit()
     await db.refresh(meeting)
-    
+
     return meeting
 
 
@@ -78,7 +99,7 @@ async def list_meetings(
     sort_by: str = Query("created_at", description="Sort field: created_at, meeting_date, title"),
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
     """
     Get list of meetings for current user with search and filter options
@@ -92,6 +113,27 @@ async def list_meetings(
     - **sort_order**: Sort order (asc, desc)
     """
     from datetime import datetime
+
+    # Get demo user if no authentication
+    if current_user is None:
+        from app.core.security import get_password_hash
+        result = await db.execute(
+            select(User).where(User.email == "demo@moa.local")
+        )
+        demo_user = result.scalar_one_or_none()
+
+        if demo_user is None:
+            demo_user = User(
+                email="demo@moa.local",
+                name="Demo User",
+                hashed_password=get_password_hash("DemoUser123!"),
+                is_active=True
+            )
+            db.add(demo_user)
+            await db.commit()
+            await db.refresh(demo_user)
+
+        current_user = demo_user
 
     # Base query
     base_query = select(Meeting).where(Meeting.user_id == current_user.id)
@@ -171,11 +213,32 @@ async def list_meetings(
 async def get_meeting(
     meeting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
     """
     Get meeting details including summary, transcripts, and action items
     """
+    # Get demo user if no authentication
+    if current_user is None:
+        from app.core.security import get_password_hash
+        result = await db.execute(
+            select(User).where(User.email == "demo@moa.local")
+        )
+        demo_user = result.scalar_one_or_none()
+
+        if demo_user is None:
+            demo_user = User(
+                email="demo@moa.local",
+                name="Demo User",
+                hashed_password=get_password_hash("DemoUser123!"),
+                is_active=True
+            )
+            db.add(demo_user)
+            await db.commit()
+            await db.refresh(demo_user)
+
+        current_user = demo_user
+
     result = await db.execute(
         select(Meeting)
         .options(
@@ -186,13 +249,13 @@ async def get_meeting(
         .where(Meeting.id == meeting_id, Meeting.user_id == current_user.id)
     )
     meeting = result.scalar_one_or_none()
-    
+
     if not meeting:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Meeting not found"
         )
-    
+
     return meeting
 
 

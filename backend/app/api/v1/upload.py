@@ -13,7 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_user
 from app.config import settings
 from app.models.user import User
 from app.models.meeting import Meeting, MeetingStatus
@@ -52,14 +52,36 @@ async def upload_audio(
     meeting_id: UUID,
     file: UploadFile = File(..., description="Audio file to upload"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_optional_user)
 ):
     """
     Upload audio file for a meeting
-    
+
     Supported formats: m4a, mp3, wav, webm, ogg, flac, aac
     Max size: 500MB
     """
+    # Get demo user if no authentication
+    if current_user is None:
+        from app.core.security import get_password_hash
+        from sqlalchemy import select as sql_select
+        result = await db.execute(
+            sql_select(User).where(User.email == "demo@moa.local")
+        )
+        demo_user = result.scalar_one_or_none()
+
+        if demo_user is None:
+            demo_user = User(
+                email="demo@moa.local",
+                name="Demo User",
+                hashed_password=get_password_hash("DemoUser123!"),
+                is_active=True
+            )
+            db.add(demo_user)
+            await db.commit()
+            await db.refresh(demo_user)
+
+        current_user = demo_user
+
     # Verify meeting exists and belongs to user
     result = await db.execute(
         select(Meeting).where(
@@ -155,16 +177,38 @@ async def upload_audio(
 async def start_processing(
     meeting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_optional_user)
 ):
     """
     Start AI processing for a meeting
-    
+
     This triggers the AI pipeline:
     1. Speech-to-Text (STT)
     2. Summary generation
     3. Action item extraction
     """
+    # Get demo user if no authentication
+    if current_user is None:
+        from app.core.security import get_password_hash
+        from sqlalchemy import select as sql_select
+        result = await db.execute(
+            sql_select(User).where(User.email == "demo@moa.local")
+        )
+        demo_user = result.scalar_one_or_none()
+
+        if demo_user is None:
+            demo_user = User(
+                email="demo@moa.local",
+                name="Demo User",
+                hashed_password=get_password_hash("DemoUser123!"),
+                is_active=True
+            )
+            db.add(demo_user)
+            await db.commit()
+            await db.refresh(demo_user)
+
+        current_user = demo_user
+
     # Verify meeting exists and belongs to user
     result = await db.execute(
         select(Meeting).where(
