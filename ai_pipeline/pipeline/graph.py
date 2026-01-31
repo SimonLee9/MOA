@@ -31,6 +31,63 @@ logger = logging.getLogger(__name__)
 
 # === Node Functions ===
 
+async def _claude_audio_stt(state: MeetingAgentState) -> dict:
+    """
+    Claude Audio를 사용한 STT + 요약 통합 처리
+
+    단일 API 호출로 음성 → 트랜스크립트 → 요약 → 액션 아이템을 모두 처리합니다.
+    Clova STT가 필요 없어 외부 의존성이 줄어듭니다.
+    """
+    from pipeline.integrations.claude_audio import get_audio_processor
+
+    meeting_id = state["meeting_id"]
+    audio_url = state["audio_file_url"]
+
+    logger.info(f"[{meeting_id}] Using Claude Audio for integrated processing")
+
+    try:
+        processor = get_audio_processor()
+
+        # Claude에게 오디오 파일을 직접 전달하여 통합 처리
+        result = await processor.transcribe_and_summarize(
+            audio_path=audio_url,
+            meeting_title=state.get("meeting_title"),
+            language="ko",
+        )
+
+        logger.info(
+            f"[{meeting_id}] Claude Audio completed: "
+            f"{len(result.speakers or [])} speakers, "
+            f"{len(result.action_items or [])} actions"
+        )
+
+        # Claude Audio는 요약까지 한 번에 처리하므로 더 많은 필드를 반환
+        return {
+            "transcript_segments": [],  # Claude는 세그먼트 없이 통합 텍스트 반환
+            "raw_text": result.transcript,
+            "speakers": result.speakers or [],
+            "audio_duration": result.duration_seconds,
+            "status": "stt_complete",
+            # Claude Audio 추가 결과 (요약, 액션 아이템 등)
+            "claude_audio_summary": result.summary,
+            "claude_audio_key_points": result.key_points,
+            "claude_audio_actions": result.action_items,
+        }
+
+    except ValueError as e:
+        logger.error(f"[{meeting_id}] Claude Audio error: {e}")
+        return {
+            "status": "failed",
+            "error_message": f"Claude Audio failed: {str(e)}",
+        }
+    except Exception as e:
+        logger.exception(f"[{meeting_id}] Claude Audio unexpected error")
+        return {
+            "status": "failed",
+            "error_message": f"Claude Audio failed: {str(e)}",
+        }
+
+
 async def stt_node(state: MeetingAgentState) -> dict:
     """
     Speech-to-Text Node
@@ -39,13 +96,20 @@ async def stt_node(state: MeetingAgentState) -> dict:
     Features:
     - Automatic retry on network errors
     - Detailed error classification
+    - Claude Audio support (use_claude_audio=True)
     """
-    from pipeline.integrations.clova_stt import transcribe_audio, get_clova_client
-
     meeting_id = state["meeting_id"]
     audio_url = state["audio_file_url"]
+    use_claude_audio = state.get("use_claude_audio", False)
 
-    logger.info(f"[{meeting_id}] Starting STT for audio")
+    logger.info(f"[{meeting_id}] Starting STT for audio (claude_audio={use_claude_audio})")
+
+    # Claude Audio 모드: 단일 API 호출로 STT + 요약 통합 처리
+    if use_claude_audio:
+        return await _claude_audio_stt(state)
+
+    # 기존 Clova STT 모드
+    from pipeline.integrations.clova_stt import transcribe_audio, get_clova_client
 
     async def do_transcribe():
         """Inner function for retry wrapper"""
@@ -548,12 +612,13 @@ async def process_meeting(
     audio_file_url: str,
     meeting_title: str,
     meeting_date: str = None,
+    use_claude_audio: bool = False,
 ) -> MeetingAgentState:
     """
     Process a meeting through the full pipeline
 
     This function initiates the LangGraph workflow which will:
-    1. Transcribe audio (STT)
+    1. Transcribe audio (STT) - Clova STT 또는 Claude Audio
     2. Generate summary and extract action items
     3. Self-critique the results
     4. Pause for human review (via interrupt)
@@ -564,6 +629,7 @@ async def process_meeting(
         audio_file_url: URL/path to the audio file
         meeting_title: Title of the meeting
         meeting_date: Optional date string (YYYY-MM-DD)
+        use_claude_audio: True면 Claude Audio 통합 처리 (Clova STT 불필요)
 
     Returns:
         Final state after processing
@@ -577,6 +643,7 @@ async def process_meeting(
         audio_file_url=audio_file_url,
         meeting_title=meeting_title,
         meeting_date=meeting_date,
+        use_claude_audio=use_claude_audio,
     )
 
     # Configure with thread_id for checkpoint persistence
