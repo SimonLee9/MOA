@@ -1,5 +1,42 @@
 # Changelog - MOA Platform
 
+## [Unreleased] - 2026-02-01
+
+### Fixed
+
+#### Frontend
+- **Meeting Detail Page Tab Navigation** ([frontend/app/meetings/[id]/page.tsx](frontend/app/meetings/[id]/page.tsx))
+  - Fixed issue where clicking tabs (Summary, Action Items, Transcript) showed no content
+  - Added "No data" state UI for each tab with appropriate status messages
+  - Improved conditional rendering to show helpful messages based on meeting status
+  - Enhanced error handling for Review API failures (500 errors are now gracefully handled)
+
+- **Dependencies**
+  - Added `date-fns` package to resolve hydration errors
+  - Fixed "Module not found: Can't resolve 'date-fns'" build error
+
+#### Backend
+- **Review API Authentication** ([backend/app/api/v1/review.py](backend/app/api/v1/review.py))
+  - Changed from required authentication (`get_current_user`) to optional authentication (`get_optional_user`)
+  - All three Review API endpoints now support demo user mode:
+    - `GET /api/v1/meetings/{meeting_id}/review`
+    - `POST /api/v1/meetings/{meeting_id}/review`
+    - `GET /api/v1/meetings/{meeting_id}/results`
+  - Fixed 401 Unauthorized errors when accessing Review API without JWT token
+
+#### Infrastructure
+- **Docker Compose Configuration** ([docker-compose.yml](docker-compose.yml))
+  - Added `ai_pipeline` volume mount to backend container
+  - Fixes "No module named 'ai_pipeline'" error in Review API
+  - Backend can now access LangGraph workflow state
+
+### Documentation
+- **Troubleshooting Guide** ([docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md))
+  - Added new section: "Review API 문제"
+  - Documented Review API 500 error and ai_pipeline dependency issue
+  - Documented meeting detail page tab navigation issue and solution
+  - Documented Review API 401 authentication error and solution
+
 ## [2.0.0] - 2026-01-10
 
 ### Major Architecture Overhaul

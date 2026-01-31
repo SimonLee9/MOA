@@ -50,6 +50,7 @@ services:
       - .env
     volumes:
       - ./backend:/app
+      - ./ai_pipeline:/app/ai_pipeline  # ai_pipeline 접근을 위한 볼륨 추가
     depends_on:
       - db
       - redis

@@ -11,8 +11,8 @@ export default defineConfig({
     // E2E 테스트 파일 패턴
     include: ['e2e/**/*.test.ts'],
 
-    // 글로벌 설정 파일
-    globalSetup: './e2e/setup.ts',
+    // 글로벌 설정 파일 (일시적으로 비활성화)
+    // globalSetup: './e2e/setup.ts',
 
     // 테스트 타임아웃 (30초)
     testTimeout: 30000,
@@ -42,9 +42,7 @@ export default defineConfig({
     // 병렬 실행 비활성화
     pool: 'forks',
     poolOptions: {
-      forks: {
-        singleFork: true,
-      },
+      singleFork: true,
     },
   },
 });

@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "vitest": "^4.0.18",
+    "wait-on": "^9.0.3"
+  }
+}

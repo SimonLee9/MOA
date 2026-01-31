@@ -95,8 +95,13 @@ export default function MeetingDetailPage() {
       if (status.requiresReview) {
         setActiveTab('review');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to check review status:', error);
+      // Review API 에러는 무시 (ai_pipeline 의존성 문제 등)
+      // 사용자 경험에 영향을 주지 않도록 조용히 실패
+      if (error.response?.status === 500) {
+        console.warn('Review API not available - this is expected if ai_pipeline is not configured');
+      }
     } finally {
       setCheckingReview(false);
     }
@@ -225,46 +230,61 @@ export default function MeetingDetailPage() {
           />
         )}
 
-        {activeTab === 'summary' && meeting.summary && (
-          <div className="space-y-6">
-            <div className="p-6 bg-white dark:bg-gray-900 rounded-xl border">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-600" />
-                회의 요약
-              </h2>
-              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{meeting.summary.summary}</p>
-            </div>
+        {activeTab === 'summary' && (
+          <>
+            {meeting.summary ? (
+              <div className="space-y-6">
+                <div className="p-6 bg-white dark:bg-gray-900 rounded-xl border">
+                  <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    회의 요약
+                  </h2>
+                  <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{meeting.summary.summary}</p>
+                </div>
 
-            {meeting.summary.keyPoints?.length > 0 && (
-              <div className="p-6 bg-white dark:bg-gray-900 rounded-xl border">
-                <h2 className="text-lg font-semibold mb-4">핵심 포인트</h2>
-                <ul className="space-y-2">
-                  {meeting.summary.keyPoints.map((point, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="w-6 h-6 rounded-full bg-yellow-100 text-yellow-800 text-sm flex items-center justify-center flex-shrink-0">
-                        {i + 1}
-                      </span>
-                      <span>{point}</span>
-                    </li>
-                  ))}
-                </ul>
+                {meeting.summary.keyPoints?.length > 0 && (
+                  <div className="p-6 bg-white dark:bg-gray-900 rounded-xl border">
+                    <h2 className="text-lg font-semibold mb-4">핵심 포인트</h2>
+                    <ul className="space-y-2">
+                      {meeting.summary.keyPoints.map((point, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="w-6 h-6 rounded-full bg-yellow-100 text-yellow-800 text-sm flex items-center justify-center flex-shrink-0">
+                            {i + 1}
+                          </span>
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {meeting.summary.decisions?.length > 0 && (
+                  <div className="p-6 bg-white dark:bg-gray-900 rounded-xl border">
+                    <h2 className="text-lg font-semibold mb-4">결정 사항</h2>
+                    <ul className="space-y-2">
+                      {meeting.summary.decisions.map((decision, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <CheckSquare className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <span>{decision}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-12 bg-white dark:bg-gray-900 rounded-xl border text-center">
+                <FileText className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                <p className="text-gray-500 mb-2">아직 요약이 생성되지 않았습니다.</p>
+                {meeting.status === 'uploaded' && (
+                  <p className="text-sm text-gray-400">회의 분석이 시작되지 않았습니다.</p>
+                )}
+                {meeting.status === 'processing' && (
+                  <p className="text-sm text-gray-400">현재 AI가 회의 내용을 분석 중입니다.</p>
+                )}
               </div>
             )}
-
-            {meeting.summary.decisions?.length > 0 && (
-              <div className="p-6 bg-white dark:bg-gray-900 rounded-xl border">
-                <h2 className="text-lg font-semibold mb-4">결정 사항</h2>
-                <ul className="space-y-2">
-                  {meeting.summary.decisions.map((decision, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <CheckSquare className="w-5 h-5 text-green-600 flex-shrink-0" />
-                      <span>{decision}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+          </>
         )}
 
         {activeTab === 'actions' && (
@@ -295,7 +315,16 @@ export default function MeetingDetailPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-center text-gray-500">트랜스크립트가 없습니다.</p>
+              <div className="py-12 text-center">
+                <MessageSquare className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                <p className="text-gray-500 mb-2">트랜스크립트가 없습니다.</p>
+                {meeting.status === 'uploaded' && (
+                  <p className="text-sm text-gray-400">회의 분석이 시작되지 않았습니다.</p>
+                )}
+                {meeting.status === 'processing' && (
+                  <p className="text-sm text-gray-400">현재 음성을 텍스트로 변환 중입니다.</p>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -305,10 +334,6 @@ export default function MeetingDetailPage() {
             meetingId={params.id as string}
             onReviewComplete={handleReviewComplete}
           />
-        )}
-
-        {!meeting.summary && meeting.status !== 'processing' && activeTab !== 'review' && (
-          <p className="text-center text-gray-500 py-8">아직 분석 결과가 없습니다.</p>
         )}
       </main>
     </div>

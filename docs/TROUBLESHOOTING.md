@@ -11,7 +11,8 @@
 3. [인증 관련 문제](#인증-관련-문제)
 4. [프론트엔드 문제](#프론트엔드-문제)
 5. [백엔드 API 문제](#백엔드-api-문제)
-6. [알려진 이슈](#알려진-이슈)
+6. [Review API 문제](#review-api-문제)
+7. [알려진 이슈](#알려진-이슈)
 
 ---
 
@@ -412,6 +413,82 @@ client = boto3.client(
 client.create_bucket(Bucket='moa-audio')
 "
 ```
+
+---
+
+## Review API 문제
+
+### 1. Review API 500 에러 - "No module named 'ai_pipeline'"
+
+**증상**:
+```json
+{"detail": "Failed to get review status: No module named 'ai_pipeline'"}
+```
+
+**원인**: Review API가 LangGraph 워크플로우 상태를 조회하기 위해 `ai_pipeline` 모듈을 import하는데, 백엔드 컨테이너에 해당 모듈이 마운트되지 않음
+
+**해결책**:
+
+`docker-compose.yml`에서 백엔드 컨테이너에 ai_pipeline 볼륨 추가:
+
+```yaml
+backend:
+  volumes:
+    - ./backend:/app
+    - ./ai_pipeline:/app/ai_pipeline  # 추가
+```
+
+**적용 방법**:
+```bash
+docker-compose down
+docker-compose up -d
+```
+
+**참고**:
+- Review API는 현재 LangGraph 워크플로우와 강하게 결합되어 있습니다
+- ai_pipeline 의존성이 없어도 프론트엔드는 정상 작동하도록 에러 처리가 되어 있습니다
+- 프로덕션 환경에서는 Review 상태를 DB에 저장하는 것이 권장됩니다
+
+---
+
+### 2. 회의 상세 페이지 탭 클릭 시 콘텐츠 미표시
+
+**증상**:
+- 탭(요약, 액션 아이템, 트랜스크립트)을 클릭하면 색상은 변하지만 아래 콘텐츠가 표시되지 않음
+
+**원인**:
+- 회의 데이터가 아직 생성되지 않았거나 처리 중인 상태
+- 조건부 렌더링으로 인해 빈 화면 표시
+
+**해결 상태**: ✅ 해결됨
+- 각 탭에 "데이터 없음" 상태 UI 추가
+- 회의 상태에 따른 적절한 안내 메시지 표시
+
+**현재 동작**:
+- **요약 탭**: 데이터 없을 시 회의 상태에 따른 메시지 표시
+- **액션 아이템 탭**: 액션 아이템 추가 UI 항상 표시
+- **트랜스크립트 탭**: 데이터 없을 시 상태에 따른 메시지 표시
+- **진행 상황 탭**: 처리 중일 때만 표시
+
+---
+
+### 3. Review API 401 Unauthorized 에러
+
+**증상**:
+```
+Request failed with status code 401
+```
+
+**원인**: Review API 엔드포인트가 필수 인증을 요구했으나, 프론트엔드에서 JWT 토큰을 제공하지 않음
+
+**해결 상태**: ✅ 해결됨
+- Review API를 선택적 인증(`get_optional_user`)으로 변경
+- 인증되지 않은 요청은 자동으로 demo 사용자 사용
+
+**수정된 엔드포인트**:
+- `GET /api/v1/meetings/{meeting_id}/review`
+- `POST /api/v1/meetings/{meeting_id}/review`
+- `GET /api/v1/meetings/{meeting_id}/results`
 
 ---
 

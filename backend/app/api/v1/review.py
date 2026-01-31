@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_user
 from app.models.user import User
 from app.models.meeting import Meeting
 
@@ -60,7 +60,7 @@ class ReviewStatusResponse(BaseModel):
 async def get_review_status(
     meeting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
     Get the current review status for a meeting
@@ -71,6 +71,19 @@ async def get_review_status(
     Returns:
         Review data if waiting for review, otherwise status info
     """
+    # If no authenticated user, use demo user
+    if current_user is None:
+        result = await db.execute(
+            select(User).where(User.email == "demo@moa.local")
+        )
+        current_user = result.scalar_one_or_none()
+
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Demo user not found. Please create a meeting first."
+            )
+
     # Verify meeting belongs to user
     result = await db.execute(
         select(Meeting).where(
@@ -141,7 +154,7 @@ async def submit_review(
     meeting_id: UUID,
     decision: ReviewDecision,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
     Submit a review decision (approve or reject)
@@ -159,6 +172,19 @@ async def submit_review(
     Returns:
         Updated workflow status
     """
+    # If no authenticated user, use demo user
+    if current_user is None:
+        result = await db.execute(
+            select(User).where(User.email == "demo@moa.local")
+        )
+        current_user = result.scalar_one_or_none()
+
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Demo user not found. Please create a meeting first."
+            )
+
     # Verify meeting belongs to user
     result = await db.execute(
         select(Meeting).where(
@@ -213,7 +239,7 @@ async def submit_review(
 async def get_meeting_results(
     meeting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
     Get final meeting results after approval
@@ -226,6 +252,19 @@ async def get_meeting_results(
     Returns:
         Final meeting results
     """
+    # If no authenticated user, use demo user
+    if current_user is None:
+        result = await db.execute(
+            select(User).where(User.email == "demo@moa.local")
+        )
+        current_user = result.scalar_one_or_none()
+
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Demo user not found. Please create a meeting first."
+            )
+
     # Verify meeting belongs to user
     result = await db.execute(
         select(Meeting).where(
