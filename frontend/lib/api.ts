@@ -81,7 +81,7 @@ export const meetingsApi = {
   },
   async uploadAudio(meetingId: string, file: File, onProgress?: (p: number) => void) {
     const formData = new FormData();
-    formData.append('audio_file', file);
+    formData.append('file', file);
     return (await apiClient.post(`/meetings/${meetingId}/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (e) => onProgress && e.total && onProgress(Math.round((e.loaded * 100) / e.total)),

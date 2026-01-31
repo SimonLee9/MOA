@@ -10,8 +10,13 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Python lib directories (but allow frontend/lib)
+/lib/
+/lib64/
+backend/lib/
+backend/lib64/
+ai_pipeline/lib/
+ai_pipeline/lib64/
 parts/
 sdist/
 var/
