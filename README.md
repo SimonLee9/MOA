@@ -1,6 +1,6 @@
 # MOA (Minutes Of Action)
 
-> **Version**: 2.0.0
+> **Version**: 2.0.1
 > **차세대 AI 에이전트 기반 회의 인텔리전스 플랫폼**
 
 회의를 실행으로 전환하는 시스템. 단순한 회의록 작성을 넘어, AI가 자동으로 요약하고, 액션 아이템을 추출하며, 외부 도구와 연동하여 실행까지 책임집니다.
@@ -307,7 +307,15 @@ pytest
 # AI Pipeline 테스트
 cd ai_pipeline
 pytest
+
+# E2E 테스트
+npm run test:e2e
+
+# 특정 E2E 테스트만 실행
+npx vitest run -c vitest.e2e.config.ts e2e/api/review.test.ts
 ```
+
+**E2E 테스트 문서**: [e2e/README.md](e2e/README.md)
 
 ---
 

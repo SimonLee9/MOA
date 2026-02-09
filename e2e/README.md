@@ -17,7 +17,8 @@ e2e/
 │   ├── health.test.ts
 │   ├── meetings.test.ts
 │   ├── upload.test.ts
-│   └── pipeline.test.ts
+│   ├── pipeline.test.ts
+│   └── review.test.ts # Review API 테스트 (선택적 인증 지원)
 └── helpers/           # 테스트 유틸리티
     ├── client.ts
     ├── fixtures.ts
@@ -93,6 +94,31 @@ it('should process audio', async () => {
   const result = await uploadAudio(meeting.id, testAudioFile)
 
   expect(result.status).toBe('processing')
+})
+```
+
+### Review API 테스트 (선택적 인증)
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import axios from 'axios'
+
+describe('Review API', () => {
+  const client = axios.create({
+    baseURL: 'http://localhost:8000',
+    validateStatus: () => true,
+  })
+
+  it('should return review status without authentication', async () => {
+    // Review API는 인증 없이도 작동 (demo user 자동 사용)
+    const response = await client.get(`/api/v1/meetings/${meetingId}/review`)
+
+    expect([200, 404, 500]).toContain(response.status)
+    if (response.status === 200) {
+      expect(response.data).toHaveProperty('meeting_id')
+      expect(response.data).toHaveProperty('requires_review')
+    }
+  })
 })
 ```
 

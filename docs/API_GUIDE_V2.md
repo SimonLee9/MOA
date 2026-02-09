@@ -1,8 +1,8 @@
 # MOA API Guide v2.0
 
-> **Version**: 2.0.0
-> **Updated**: 2026-01-10
-> **New Features**: Tus Upload, Human Review, MCP Integration
+> **Version**: 2.0.1
+> **Updated**: 2026-02-01
+> **New Features**: Tus Upload, Human Review, MCP Integration, Optional Auth
 
 ---
 
@@ -140,16 +140,20 @@ Authorization: Bearer <token>
 
 ## 3. Human Review (HITL)
 
+> **Note**: Review API는 **선택적 인증**을 지원합니다. 인증 토큰 없이 호출 시 자동으로 데모 사용자(`demo@moa.local`)로 처리됩니다.
+
 ### 3.1 Get Review Data
 
 **Endpoint**: `GET /api/v1/meetings/{meeting_id}/review`
 
 **Description**: Retrieve data that needs human review
 
+**Authentication**: Optional (uses demo user if not authenticated)
+
 **Request**:
 ```http
 GET /api/v1/meetings/550e8400.../review
-Authorization: Bearer <token>
+Authorization: Bearer <token>  # Optional
 ```
 
 **Response**:
@@ -434,6 +438,12 @@ GET /meetings/{id}/results  ◄─── Get final data
 ---
 
 ## 8. Changelog
+
+### v2.0.1 (2026-02-01)
+- ✅ Review API now supports optional authentication
+- ✅ Demo user mode for development/testing
+- ✅ Fixed 401 errors when accessing Review API without JWT token
+- ✅ Improved error handling for ai_pipeline dependency issues
 
 ### v2.0.0 (2026-01-10)
 - ✅ Added Tus protocol for resumable uploads
